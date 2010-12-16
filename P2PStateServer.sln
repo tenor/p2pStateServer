@@ -1,0 +1,26 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 9.00
+# Visual Studio 2005
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ConsoleServer", "ConsoleServer.csproj", "{0442F755-F10B-4D34-9295-B84CFF937615}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "StateService", "StateService.csproj", "{4C860DB3-6B6B-4482-AB65-5BDB4245DF9A}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{0442F755-F10B-4D34-9295-B84CFF937615}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{0442F755-F10B-4D34-9295-B84CFF937615}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{0442F755-F10B-4D34-9295-B84CFF937615}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{0442F755-F10B-4D34-9295-B84CFF937615}.Release|Any CPU.Build.0 = Release|Any CPU
+		{4C860DB3-6B6B-4482-AB65-5BDB4245DF9A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{4C860DB3-6B6B-4482-AB65-5BDB4245DF9A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{4C860DB3-6B6B-4482-AB65-5BDB4245DF9A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{4C860DB3-6B6B-4482-AB65-5BDB4245DF9A}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal
