@@ -854,7 +854,7 @@ namespace P2PStateServer
 
                 if (queryTimeout == null)
                 {
-                    queryTimeout = DateTime.UtcNow + new TimeSpan(0, 0, service.Settings.NetworkQueryTimeout);
+                    queryTimeout = DateTime.UtcNow + new TimeSpan(0, 0, 0, 0, service.Settings.NetworkQueryTimeout);
                 }
 
                 //Log P2P Querying Network
@@ -866,12 +866,13 @@ namespace P2PStateServer
                 //Add new query to Queries Initiated list (with one minute expiry)
                 service.QueriesInitiated.Add(DateTime.UtcNow + new TimeSpan(0, 1, 0), msgID, null);
 
-                //To get Origin Host: Get the LocalIP of the connecting socket + Port of peer listening socket
+                //To get Origin Host: Get the LocalIP of the server IP + Port of peer listening socket
+                //NOTE: Server IP must be valid within this routine because it is discovered in Server.NewLivePeer() and livePeers > 0
                 string originEndPoint;
                 {
                     string localhost;
                     int? localport;
-                    ServerSettings.HostEndPoint.Parse(socket.LocalIP, out localhost, out localport);
+                    ServerSettings.HostEndPoint.Parse(service.ServerIP, out localhost, out localport);
                     originEndPoint = new ServerSettings.HostEndPoint(localhost, service.Settings.PeerPort).ToString();
                 }
 
@@ -1833,9 +1834,9 @@ namespace P2PStateServer
         /// Sends a PingMessage message to a specified ServiceSocket
         /// </summary>
         /// <param name="socket">The target ServiceSocket</param>
-        public static void Send(ServiceSocket socket)
+        public static void Send(ServiceSocket socket, string ServerIP)
         {
-            ResponseData rdata = new ResponseData(Encoding.UTF8.GetBytes("GET \\PING HTTP/1.1\r\nHost: " + socket.LocalIP + "\r\nContent-Length: 0\r\n\r\n"), typeof(PingMessage));
+            ResponseData rdata = new ResponseData(Encoding.UTF8.GetBytes("GET \\PING HTTP/1.1\r\nHost: " + (ServerIP ?? socket.LocalIP) + "\r\nContent-Length: 0\r\n\r\n"), typeof(PingMessage));
             
             socket.Send(rdata);
             Diags.LogSend(socket, rdata);
@@ -2013,7 +2014,7 @@ namespace P2PStateServer
         public static void Send(ServiceSocket socket, StateServer Service, Action<ServiceSocket> SuccessAction, Action<ServiceSocket> FailAction, System.Threading.WaitCallback TimeoutAction, TimeSpan Timeout)
         {
 
-            ResponseData rdata = new ResponseData(Encoding.UTF8.GetBytes("GET \\AUTH HTTP/1.1\r\nHost: " + socket.LocalIP + "\r\n\r\n"), typeof(BeginAuthRequest));
+            ResponseData rdata = new ResponseData(Encoding.UTF8.GetBytes("GET \\AUTH HTTP/1.1\r\nHost: " + (Service.ServerIP ?? socket.LocalIP) + "\r\n\r\n"), typeof(BeginAuthRequest));
 
             //Create new AsyncResultActions object to hold delegates for actions based on the outcome of the call
             AsyncResultActions<ServiceSocket> asyncResults = new AsyncResultActions<ServiceSocket>(socket);
@@ -2334,10 +2335,10 @@ namespace P2PStateServer
         /// <param name="Algorithm">The algorithm field value in the Authorization Request Header, according o RFC 2617</param>
         /// <param name="Realm">The realm field value in the Authorization Request Header, according o RFC 2617</param>
         /// <param name="socket">The target ServiceSocket</param>
-        public static void Send(string Nonce, string ClientNonce, string ServerDigest, string ClientDigest, byte[] SessionKey, string MachineName, string Algorithm, string Realm, ServiceSocket socket)
+        public static void Send(string Nonce, string ClientNonce, string ServerDigest, string ClientDigest, byte[] SessionKey, string MachineName, string Algorithm, string Realm, ServiceSocket socket, string ServerIP)
         {
             string msg = string.Format("GET \\AUTH HTTP/1.1\r\nHost: {0}\r\nAuthorization: Digest username = \"{1}\", realm=\"{2}\" , nonce=\"{3}\", uri =\"\\AUTH\",qop=\"auth\",nc=1,cnonce=\"{4}\" ,response=\"{5}\",algorithm=\"{6}\"\r\n\r\n"
-            , socket.LocalIP, MachineName, Realm, Nonce, ClientNonce, ServerDigest, Algorithm);
+            , ServerIP ?? socket.LocalIP, MachineName, Realm, Nonce, ClientNonce, ServerDigest, Algorithm);
 
             /*
              * SAMPLE:
@@ -2735,7 +2736,7 @@ namespace P2PStateServer
         {
             StringBuilder headers = new StringBuilder();
 
-            headers.AppendFormat("PUT {0} HTTP/1.1\r\nHost: {1}\r\n", Resource, socket.LocalIP);
+            headers.AppendFormat("PUT {0} HTTP/1.1\r\nHost: {1}\r\n", Resource, Service.ServerIP ?? socket.LocalIP);
 
             if (SessionInfo.LockDateInTicks != DateTime.MinValue.Ticks)
             {
@@ -3743,7 +3744,7 @@ namespace P2PStateServer
                         service.Authenticator.GetServerResponseDigest(algorithmName, computerName, realm, nonce, 1, clientNonce, "auth", "\\AUTH"),
                         service.Authenticator.GetClientResponseDigest(algorithmName, computerName, realm, nonce, 1, clientNonce, "auth", "\\AUTH"),
                         service.Authenticator.GetSessionKey(computerName, realm, nonce, clientNonce), computerName,
-                        algorithmName, realm, socket);
+                        algorithmName, realm, socket, service.ServerIP);
 
                     return;
                 }

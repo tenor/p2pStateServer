@@ -69,6 +69,7 @@ namespace P2PStateServer
         List<ServiceSocket> connections = new List<ServiceSocket>();//List of all accepted incoming connections
         int connectingPeersCount = 0; //This is the current number of pending connections to peers 
         Dictionary<ServiceSocket, ServerSettings.HostEndPoint> livePeerEndPointTracker = new Dictionary<ServiceSocket, ServerSettings.HostEndPoint>(); //Dictionary of the endpoint of all live peers
+        string serverIP = null; //Stores the local IP address of the network adapter peers connect to, and on which this peer connects to other peers
 
 
         //The session dictionary
@@ -202,6 +203,14 @@ namespace P2PStateServer
             get { return sentTransfers; }
         }
 
+        /// <summary>
+        /// Gets the local server IP of the network adapter peers connect to, and on which this peer connects through
+        /// </summary>
+        internal string ServerIP
+        {
+            get { return serverIP; }
+        }
+
 
         #endregion
 
@@ -215,6 +224,18 @@ namespace P2PStateServer
         {
             lock (syncLivePeers)
             {
+
+                //Discover local server IP via local end point of new peer
+                if (serverIP == null)
+                {
+                    string ip = Peer.LocalIP;
+                    if (ip != null && ip != string.Empty)
+                    {
+                        serverIP = ip;
+                    }
+                }
+
+                //Add Peer
                 if (!livePeers.Contains(Peer))
                 {
                     livePeers.Add(Peer);
@@ -385,6 +406,7 @@ namespace P2PStateServer
 
             ServiceSocket handler = new ServiceSocket(incoming, listener == peerListener);
             handler.ReferenceTime = DateTime.UtcNow;
+
             //Add new connection to connections list
             lock (syncConnections)
             {
@@ -736,7 +758,7 @@ namespace P2PStateServer
                     //Send pings
                     foreach (ServiceSocket peer in peersSnap)
                     {
-                        PingMessage.Send(peer);
+                        PingMessage.Send(peer, ServerIP);
                     }
 
                     lastPingTime = DateTime.UtcNow;
@@ -985,10 +1007,12 @@ namespace P2PStateServer
             {
                 // Start Listening on Peer Socket
                 peerListener = ServiceSocket.Listen(settings.PeerPort, AcceptCallback);
+
+                if (peerListener == null)
+                    throw new ApplicationException("Unable to listen on Peer port. Another process may already be listening on this port");
+
             }
 
-            if (peerListener == null)
-                throw new ApplicationException("Unable to listen on Peer port. Another process may already be listening on this port");
 
             // Start Listening on Web Server Socket
             wsListener = ServiceSocket.Listen(settings.WebserverPort, AcceptCallback);
@@ -1585,7 +1609,7 @@ namespace P2PStateServer
         private void PeerConnectAuthSuccess(ServiceSocket socket)
         {
             NewLivePeer(socket);
-            PingMessage.Send(socket);
+            PingMessage.Send(socket,ServerIP);
             Interlocked.Decrement(ref connectingPeersCount);
         }
 
@@ -1723,7 +1747,7 @@ namespace P2PStateServer
                         {
                             //Send the Set Transfer message
                             SetTransferRequest.Send(socket, this, ResourceKey, SessionInfo, Data,
-                                SuccessAction, FailedAction, AlreadyExistsAction, PeerShuttingDownAction, TimeoutAction, new TimeSpan(0, 0, settings.NetworkQueryTimeout));
+                                SuccessAction, FailedAction, AlreadyExistsAction, PeerShuttingDownAction, TimeoutAction, new TimeSpan(0, 0, 0, 0, settings.NetworkQueryTimeout));
                         },
 
                         //Authentication failed delegate
@@ -1756,14 +1780,14 @@ namespace P2PStateServer
                         },
                     //So as not to hold up any request that may want access to the transferring resource
                     //keep the timeout low by setting it to the network query timeout
-                        new TimeSpan(0, 0, settings.NetworkQueryTimeout)
+                        new TimeSpan(0, 0, 0, 0, settings.NetworkQueryTimeout)
                     );
             }
             else
             {
                 //Skip authentication and send request
                 SetTransferRequest.Send(ConnectedSocket, this, ResourceKey, SessionInfo, Data,
-                    SuccessAction, FailedAction, AlreadyExistsAction, PeerShuttingDownAction, TimeoutAction, new TimeSpan(0, 0, settings.NetworkQueryTimeout));
+                    SuccessAction, FailedAction, AlreadyExistsAction, PeerShuttingDownAction, TimeoutAction, new TimeSpan(0, 0, 0, 0, settings.NetworkQueryTimeout));
             }
         }
 
@@ -2038,7 +2062,7 @@ namespace P2PStateServer
 
                         default:
                             //UnknownResponse
-                            return new UnknownRequest(data, service);
+                            return new UnknownResponse(data, service);
 
                     }
 
@@ -2308,14 +2332,14 @@ namespace P2PStateServer
 
             try
             {
-                netQueryTimeout = int.Parse(AppSettings["NetworkQueryTimeout"]);
+                netQueryTimeout = (int)(float.Parse( AppSettings["NetworkQueryTimeout"] ) * 1000);
             }
             catch (Exception ex)
             {
                 throw new ApplicationException("Error reading NetworkQueryTimeout configuration setting", ex);
             }
 
-            if (netQueryTimeout <= 0) netQueryTimeout = 1;
+            if (netQueryTimeout <= 0) netQueryTimeout = 1000; //Default to 1 second
 
 
             try
@@ -2447,7 +2471,7 @@ namespace P2PStateServer
         }
 
         /// <summary>
-        /// Gets the NetworkQueryTimeout setting
+        /// Gets the NetworkQueryTimeout setting in milliseconds
         /// </summary>
         public int NetworkQueryTimeout
         {

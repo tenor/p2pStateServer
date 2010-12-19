@@ -45,7 +45,7 @@ namespace P2PStateServer
             {
                 deadlocked = false;
 
-                Debug.WriteLine("[" + DateTime.Now.ToString("T") + "] " + string.Format("DeadLock freed at Thread {0}. StackTrace: {1}\n", Thread.CurrentThread.ManagedThreadId, new StackTrace().ToString()), "THREADING");
+                Debug.WriteLine("[" + GetFormattedTime(DateTime.Now) + "] " + string.Format("DeadLock freed at Thread {0}. StackTrace: {1}\n", Thread.CurrentThread.ManagedThreadId, new StackTrace().ToString()), "THREADING");
             }
         }
 
@@ -59,7 +59,7 @@ namespace P2PStateServer
             {
                 deadlocked = true;
 
-                Debug.WriteLine( "[" + DateTime.Now.ToString("T") + "] " + string.Format("DeadLock detected at Thread {0} on Object {1} after {2} iterations. StackTrace: {3}\n", Thread.CurrentThread.ManagedThreadId, Object.ToString(), deadlockCounter, new StackTrace().ToString()), "THREADING");
+                Debug.WriteLine( "[" + GetFormattedTime(DateTime.Now) + "] " + string.Format("DeadLock detected at Thread {0} on Object {1} after {2} iterations. StackTrace: {3}\n", Thread.CurrentThread.ManagedThreadId, Object.ToString(), deadlockCounter, new StackTrace().ToString()), "THREADING");
 
                 //reset deadLock counter
                 deadlockCounter = 0;
@@ -74,11 +74,11 @@ namespace P2PStateServer
             if(socketEx == null)
             {
                 //Not a socket exception
-                Debug.WriteLine( "[" + DateTime.Now.ToString("T") + "] " + string.Format("Exception: {0} occured at {1}\n", ex.Message, ex.StackTrace),"SOCKETS");  
+                Debug.WriteLine( "[" + GetFormattedTime(DateTime.Now) + "] " + string.Format("Exception: {0} occured at {1}\n", ex.Message, ex.StackTrace),"SOCKETS");  
             }
             else
             {
-                Debug.WriteLine( "[" + DateTime.Now.ToString("T") + "] " + string.Format("Socket Exception: Code {0}, Message {1} occured at {2}\n", socketEx.ErrorCode, socketEx.Message, socketEx.StackTrace), "SOCKETS");  
+                Debug.WriteLine( "[" + GetFormattedTime(DateTime.Now) + "] " + string.Format("Socket Exception: Code {0}, Message {1} occured at {2}\n", socketEx.ErrorCode, socketEx.Message, socketEx.StackTrace), "SOCKETS");  
             }
         }
 
@@ -107,11 +107,11 @@ namespace P2PStateServer
         {
             if (Msg is ServiceRequest || Msg is GetTransferMessage)
             {
-                Debug.WriteLine( "[" + DateTime.Now.ToString("T") + "] " + string.Format("Received {0} Message ID {1} for resource {2} from {3}\n", Msg.GetType().Name, Msg.Tag, Msg.Resource, Msg.Source), "MESSAGING");
+                Debug.WriteLine( "[" + GetFormattedTime(DateTime.Now) + "] " + string.Format("Received {0} Message ID {1} for resource {2} from {3}\n", Msg.GetType().Name, Msg.Tag, Msg.Resource, Msg.Source), "MESSAGING");
             }
             else
             {
-                Debug.WriteLine( "[" + DateTime.Now.ToString("T") + "] " + string.Format("Received {0} Message ID {1} from {2}\n", Msg.GetType().Name, Msg.Tag, Msg.Source), "MESSAGING");
+                Debug.WriteLine( "[" + GetFormattedTime(DateTime.Now) + "] " + string.Format("Received {0} Message ID {1} from {2}\n", Msg.GetType().Name, Msg.Tag, Msg.Source), "MESSAGING");
             }
             
         }
@@ -119,31 +119,31 @@ namespace P2PStateServer
         [Conditional("DEBUG")]
         static public void LogMessageError(ServiceMessage Msg, Exception ex)
         {
-            Debug.WriteLine( "[" + DateTime.Now.ToString("T") + "] " + string.Format("Error processing {0} Message ID {1} for resource {2}. Error Message {3} occured at {4}\n", Msg.GetType().Name, Msg.Tag, Msg.Resource, ex.Message, ex.StackTrace), "MESSAGING");
+            Debug.WriteLine( "[" + GetFormattedTime(DateTime.Now) + "] " + string.Format("Error processing {0} Message ID {1} for resource {2}. Error Message {3} occured at {4}\n", Msg.GetType().Name, Msg.Tag, Msg.Resource, ex.Message, ex.StackTrace), "MESSAGING");
         }
 
         [Conditional("DEBUG")]
         static public void LogApplicationError(string Error, Exception ex)
         {
-            Debug.WriteLine( "[" + DateTime.Now.ToString("T") + "] " + string.Format("Application error: {0} . Error Message {1} occured at {2}\n", Error, ex.Message, ex.StackTrace), "SERVER");
+            Debug.WriteLine( "[" + GetFormattedTime(DateTime.Now) + "] " + string.Format("Application error: {0} . Error Message {1} occured at {2}\n", Error, ex.Message, ex.StackTrace), "SERVER");
         }
 
         [Conditional("DEBUG")]
         static public void LogMessageContentCipherError(ServiceMessage Msg, Exception ex)
         {
-            Debug.WriteLine( "[" + DateTime.Now.ToString("T") + "] " + string.Format("Error decrypting content of {0} Message ID {1} for resource {2}. Error Message {3} occured at {4}\n", Msg.GetType().Name, Msg.Tag, Msg.Resource, ex.Message, ex.StackTrace), "MESSAGING");
+            Debug.WriteLine( "[" + GetFormattedTime(DateTime.Now) + "] " + string.Format("Error decrypting content of {0} Message ID {1} for resource {2}. Error Message {3} occured at {4}\n", Msg.GetType().Name, Msg.Tag, Msg.Resource, ex.Message, ex.StackTrace), "MESSAGING");
         }
 
         [Conditional("DEBUG")]
         static public void LogMessageUnprotectedError(ServiceMessage Msg)
         {
-            Debug.WriteLine( "[" + DateTime.Now.ToString("T") + "] " + string.Format("Error: Unencrypted message content from {0} Message ID {1} for resource {2} -- expected encrypted message \n", Msg.GetType().Name, Msg.Tag, Msg.Resource), "MESSAGING");
+            Debug.WriteLine( "[" + GetFormattedTime(DateTime.Now) + "] " + string.Format("Error: Unencrypted message content from {0} Message ID {1} for resource {2} -- expected encrypted message \n", Msg.GetType().Name, Msg.Tag, Msg.Resource), "MESSAGING");
         }
 
         [Conditional("DEBUG")]
         static public void LogMessageProtectedError(ServiceMessage Msg)
         {
-            Debug.WriteLine( "[" + DateTime.Now.ToString("T") + "] " + string.Format("Error: Encrypted message content from {0} Message ID {1} for resource {2} -- expected unencrypted message \n", Msg.GetType().Name, Msg.Tag, Msg.Resource), "MESSAGING");
+            Debug.WriteLine( "[" + GetFormattedTime(DateTime.Now) + "] " + string.Format("Error: Encrypted message content from {0} Message ID {1} for resource {2} -- expected unencrypted message \n", Msg.GetType().Name, Msg.Tag, Msg.Resource), "MESSAGING");
         }
 
         [Conditional("VERBOSE")]
@@ -151,122 +151,122 @@ namespace P2PStateServer
         {
             Stopwatch timer = ((Tag)Msg.Tag).Timer;
             timer.Stop();
-            Debug.WriteLine( "[" + DateTime.Now.ToString("T") + "] " + string.Format("Replied Message {0} with {1} . Processed in {2} ms \n", Msg.Tag, Response.ResponseType.Name, timer.ElapsedMilliseconds ), "MESSAGING");
+            Debug.WriteLine( "[" + GetFormattedTime(DateTime.Now) + "] " + string.Format("Replied Message {0} with {1} . Processed in {2} ms \n", Msg.Tag, Response.ResponseType.Name, timer.ElapsedMilliseconds ), "MESSAGING");
         }
 
         [Conditional("VERBOSE")]
         static public void LogIgnoredMessage(ServiceMessage Msg, string Reason)
         {
-            Debug.WriteLine( "[" + DateTime.Now.ToString("T") + "] " + string.Format("Ignored Message {0}. Reason: {1}\n", Msg.Tag, Reason), "MESSAGING");
+            Debug.WriteLine( "[" + GetFormattedTime(DateTime.Now) + "] " + string.Format("Ignored Message {0}. Reason: {1}\n", Msg.Tag, Reason), "MESSAGING");
         }
 
         [Conditional("VERBOSE")]
         static public void LogSend(ServiceSocket socket, ResponseData Response)
         {
-            Debug.WriteLine( "[" + DateTime.Now.ToString("T") + "] " + string.Format("Sent {0} to {1}\n", Response.ResponseType.Name, socket.RemoteIP), "MESSAGING");
+            Debug.WriteLine( "[" + GetFormattedTime(DateTime.Now) + "] " + string.Format("Sent {0} to {1}\n", Response.ResponseType.Name, socket.RemoteIP), "MESSAGING");
         }
 
         [Conditional("VERBOSE")]
         static public void LogNewWebServerConnection(System.Net.Sockets.Socket socket)
         {
-            Debug.WriteLine( "[" + DateTime.Now.ToString("T") + "] " + string.Format("Incoming web server connection from {0}\n", socket.RemoteEndPoint.ToString()), "SOCKETS");
+            Debug.WriteLine( "[" + GetFormattedTime(DateTime.Now) + "] " + string.Format("Incoming web server connection from {0}\n", socket.RemoteEndPoint.ToString()), "SOCKETS");
         }
 
         [Conditional("VERBOSE")]
         static public void LogNewPeerConnection(System.Net.Sockets.Socket socket)
         {
-            Debug.WriteLine( "[" + DateTime.Now.ToString("T") + "] " + string.Format("Incoming peer connection from {0}\n", socket.RemoteEndPoint.ToString()), "SOCKETS");
+            Debug.WriteLine( "[" + GetFormattedTime(DateTime.Now) + "] " + string.Format("Incoming peer connection from {0}\n", socket.RemoteEndPoint.ToString()), "SOCKETS");
         }
 
         [Conditional("VERBOSE")]
         static public void LogNewSession(string key, ISessionObject Session)
         {
-            Debug.WriteLine( "[" + DateTime.Now.ToString("T") + "] " + string.Format("Stored new session data for key {0} , length: {1} bytes \n", key,Session.Data.Length), "SESSION_DICT");
+            Debug.WriteLine( "[" + GetFormattedTime(DateTime.Now) + "] " + string.Format("Stored new session data for key {0} , length: {1} bytes \n", key,Session.Data.Length), "SESSION_DICT");
         }
 
         [Conditional("VERBOSE")]
         static public void LogUpdatedSession(string key, ISessionObject Session)
         {
-            Debug.WriteLine( "[" + DateTime.Now.ToString("T") + "] " + string.Format("Updated session data for key {0} , length: {1} bytes \n", key, Session.Data.Length), "SESSION_DICT");
+            Debug.WriteLine( "[" + GetFormattedTime(DateTime.Now) + "] " + string.Format("Updated session data for key {0} , length: {1} bytes \n", key, Session.Data.Length), "SESSION_DICT");
         }
 
         [Conditional("VERBOSE")]
         static public void LogSessionNotFound(string key)
         {
-            Debug.WriteLine( "[" + DateTime.Now.ToString("T") + "] " + string.Format("Session not found for key {0} \n", key), "SESSION_DICT");
+            Debug.WriteLine( "[" + GetFormattedTime(DateTime.Now) + "] " + string.Format("Session not found for key {0} \n", key), "SESSION_DICT");
         }
 
         [Conditional("VERBOSE")]
         static public void LogSessionAlreadyExists(string key)
         {
-            Debug.WriteLine( "[" + DateTime.Now.ToString("T") + "] " + string.Format("Session already exists for key {0} \n", key), "SESSION_DICT");
+            Debug.WriteLine( "[" + GetFormattedTime(DateTime.Now) + "] " + string.Format("Session already exists for key {0} \n", key), "SESSION_DICT");
         }
 
         [Conditional("VERBOSE")]
         static public void LogSessionIsLocked(string key)
         {
-            Debug.WriteLine( "[" + DateTime.Now.ToString("T") + "] " + string.Format("Session is locked for key {0} \n", key), "SESSION_DICT");
+            Debug.WriteLine( "[" + GetFormattedTime(DateTime.Now) + "] " + string.Format("Session is locked for key {0} \n", key), "SESSION_DICT");
         }
 
         [Conditional("VERBOSE")]
         static public void LogSessionRead(string key, ISessionObject Session)
         {
-            Debug.WriteLine( "[" + DateTime.Now.ToString("T") + "] " + string.Format("Session read for key {0}, length: {1} bytes \n", key, Session.Data.Length), "SESSION_DICT");
+            Debug.WriteLine( "[" + GetFormattedTime(DateTime.Now) + "] " + string.Format("Session read for key {0}, length: {1} bytes \n", key, Session.Data.Length), "SESSION_DICT");
         }
 
         [Conditional("VERBOSE")]
         static public void LogSessionExporting(string key, ISessionObject Session)
         {
-            Debug.WriteLine( "[" + DateTime.Now.ToString("T") + "] " + string.Format("Export started for session key {0}, length: {1} bytes \n", key, Session.Data.Length), "SESSION_DICT");
+            Debug.WriteLine( "[" + GetFormattedTime(DateTime.Now) + "] " + string.Format("Export started for session key {0}, length: {1} bytes \n", key, Session.Data.Length), "SESSION_DICT");
         }
 
         [Conditional("VERBOSE")]
         static public void LogSessionExported(string key)
         {
-            Debug.WriteLine( "[" + DateTime.Now.ToString("T") + "] " + string.Format("Export completed for session key {0} \n", key), "SESSION_DICT");
+            Debug.WriteLine( "[" + GetFormattedTime(DateTime.Now) + "] " + string.Format("Export completed for session key {0} \n", key), "SESSION_DICT");
         }
 
         [Conditional("VERBOSE")]
         static public void LogSessionDeleted(string key)
         {
-            Debug.WriteLine( "[" + DateTime.Now.ToString("T") + "] " + string.Format("Session deleted for key {0} \n", key), "SESSION_DICT");
+            Debug.WriteLine( "[" + GetFormattedTime(DateTime.Now) + "] " + string.Format("Session deleted for key {0} \n", key), "SESSION_DICT");
         }
 
         [Conditional("VERBOSE")]
         static public void LogSessionExpired(string key)
         {
-            Debug.WriteLine( "[" + DateTime.Now.ToString("T") + "] " + string.Format("Session expired for key {0} \n", key), "SESSION_DICT");
+            Debug.WriteLine( "[" + GetFormattedTime(DateTime.Now) + "] " + string.Format("Session expired for key {0} \n", key), "SESSION_DICT");
         }
 
         [Conditional("DEBUG")]
         static public void LogConnectingPeer(string Peer)
         {
-            Debug.WriteLine( "[" + DateTime.Now.ToString("T") + "] " + string.Format("Connecting Peer {0}\n", Peer), "P2P");
+            Debug.WriteLine( "[" + GetFormattedTime(DateTime.Now) + "] " + string.Format("Connecting Peer {0}\n", Peer), "P2P");
         }
 
         [Conditional("VERBOSE")]
         static public void LogConnectingSessionTransferPeer(string Peer)
         {
-            Debug.WriteLine( "[" + DateTime.Now.ToString("T") + "] " + string.Format("Connecting session transfer Peer {0}\n", Peer), "P2P");
+            Debug.WriteLine( "[" + GetFormattedTime(DateTime.Now) + "] " + string.Format("Connecting session transfer Peer {0}\n", Peer), "P2P");
         }
 
         [Conditional("DEBUG")]
         static public void LogErrorConnectingPeer()
         {
-            Debug.WriteLine( "[" + DateTime.Now.ToString("T") + "] " + string.Format("Error Connecting Peer\n"), "P2P");
+            Debug.WriteLine( "[" + GetFormattedTime(DateTime.Now) + "] " + string.Format("Error Connecting Peer\n"), "P2P");
         }
 
         [Conditional("DEBUG")]
         static public void LogPeerAuthenticationFailed(string Reason, string Peer)
         {
-            Debug.WriteLine( "[" + DateTime.Now.ToString("T") + "] " + string.Format("Error Authenticating Peer {1}. Reason:{0} \n",Reason, Peer), "P2P");
+            Debug.WriteLine( "[" + GetFormattedTime(DateTime.Now) + "] " + string.Format("Error Authenticating Peer {1}. Reason:{0} \n",Reason, Peer), "P2P");
         }
 
 
         [Conditional("VERBOSE")]
         static public void LogDisconnectingPeer(string Peer)
         {
-            Debug.WriteLine( "[" + DateTime.Now.ToString("T") + "] " + string.Format("Disconnecting Peer {0} \n", Peer), "P2P");
+            Debug.WriteLine( "[" + GetFormattedTime(DateTime.Now) + "] " + string.Format("Disconnecting Peer {0} \n", Peer), "P2P");
         }
 
 
@@ -274,67 +274,73 @@ namespace P2PStateServer
         static public void LogDisconnectingSocket(string Socket, bool IsFromPeer, string Reason)
         {
             string socketType = IsFromPeer == true ? "Peer" : "Web server";
-            Debug.WriteLine("[" + DateTime.Now.ToString("T") + "] " + string.Format("Disconnecting Socket {0}. Type: {1}. Reason: {2}\n", Socket, socketType, Reason), "SERVER");
+            Debug.WriteLine("[" + GetFormattedTime(DateTime.Now) + "] " + string.Format("Disconnecting Socket {0}. Type: {1}. Reason: {2}\n", Socket, socketType, Reason), "SERVER");
         }
 
         [Conditional("VERBOSE")]
         static public void LogTransferringSession(string Resource, string Peer)
         {
-            Debug.WriteLine( "[" + DateTime.Now.ToString("T") + "] " + string.Format("Transferring session {0} to Peer {1} \n", Resource, Peer), "P2P");
+            Debug.WriteLine( "[" + GetFormattedTime(DateTime.Now) + "] " + string.Format("Transferring session {0} to Peer {1} \n", Resource, Peer), "P2P");
         }
 
         [Conditional("VERBOSE")]
         static public void LogQueryingNetwork(string Resource)
         {
-            Debug.WriteLine( "[" + DateTime.Now.ToString("T") + "] " + string.Format("Querying network for resource {0} \n", Resource), "P2P");
+            Debug.WriteLine( "[" + GetFormattedTime(DateTime.Now) + "] " + string.Format("Querying network for resource {0} \n", Resource), "P2P");
         }
 
         [Conditional("VERBOSE")]
         static public void LogNetworkQueryTimeout(string Resource)
         {
-            Debug.WriteLine( "[" + DateTime.Now.ToString("T") + "] " + string.Format("Network query timed out for resource {0} \n", Resource), "P2P");
+            Debug.WriteLine( "[" + GetFormattedTime(DateTime.Now) + "] " + string.Format("Network query timed out for resource {0} \n", Resource), "P2P");
         }
 
         [Conditional("VERBOSE")]
         static public void LogForwardingNetworkQuery(string Resource)
         {
-            Debug.WriteLine( "[" + DateTime.Now.ToString("T") + "] " + string.Format("Forwarding network query for resource {0} \n", Resource), "P2P");
+            Debug.WriteLine( "[" + GetFormattedTime(DateTime.Now) + "] " + string.Format("Forwarding network query for resource {0} \n", Resource), "P2P");
         }
 
         [Conditional("VERBOSE")]
         static public void LogRebroadcastingNetworkQuery(string Resource)
         {
-            Debug.WriteLine( "[" + DateTime.Now.ToString("T") + "] " + string.Format("Rebroadcasting network query for resource {0} \n", Resource), "P2P");
+            Debug.WriteLine( "[" + GetFormattedTime(DateTime.Now) + "] " + string.Format("Rebroadcasting network query for resource {0} \n", Resource), "P2P");
         }
 
         [Conditional("VERBOSE")]
         static public void LogNetworkTransferredResource(string Resource)
         {
-            Debug.WriteLine( "[" + DateTime.Now.ToString("T") + "] " + string.Format("Resource {0} was transferred from the network \n", Resource), "P2P");
+            Debug.WriteLine( "[" + GetFormattedTime(DateTime.Now) + "] " + string.Format("Resource {0} was transferred from the network \n", Resource), "P2P");
         }
 
         [Conditional("VERBOSE")]
         static public void LogTransferSuccess(string Resource)
         {
-            Debug.WriteLine( "[" + DateTime.Now.ToString("T") + "] " + string.Format("Session {0} transferred successfully \n", Resource), "P2P");
+            Debug.WriteLine( "[" + GetFormattedTime(DateTime.Now) + "] " + string.Format("Session {0} transferred successfully \n", Resource), "P2P");
         }
 
         [Conditional("DEBUG")]
         static public void LogTransferFailed(string Resource, string Reason)
         {
-            Debug.WriteLine( "[" + DateTime.Now.ToString("T") + "] " + string.Format("Session {0} transfer failed : {1} \n", Resource, Reason), "P2P");
+            Debug.WriteLine( "[" + GetFormattedTime(DateTime.Now) + "] " + string.Format("Session {0} transfer failed : {1} \n", Resource, Reason), "P2P");
         }
 
         [Conditional("DEBUG")]
         static public void LogContentionDetected(string Resource, string Activity)
         {
-            Debug.WriteLine( "[" + DateTime.Now.ToString("T") + "] " + string.Format("Contention detected for session {0}: {1} \n", Resource, Activity), "SERVER");
+            Debug.WriteLine( "[" + GetFormattedTime(DateTime.Now) + "] " + string.Format("Contention detected for session {0}: {1} \n", Resource, Activity), "SERVER");
         }
 
         [Conditional("VERBOSE")]
         static public void LogShuttingdownMessage()
         {
-            Debug.WriteLine("[" + DateTime.Now.ToString("T") + "] " + string.Format("SHUTTING DOWN SERVER ... \n"), "SERVER");
+            Debug.WriteLine("[" + GetFormattedTime(DateTime.Now) + "] " + string.Format("SHUTTING DOWN SERVER ... \n"), "SERVER");
+        }
+
+
+        static string GetFormattedTime(DateTime Time)
+        {
+            return Time.ToString("h:m:s,fff tt");
         }
 
         /// <summary>
