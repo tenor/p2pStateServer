@@ -34,14 +34,18 @@ namespace P2PStateServer
 
         //The maximum backlogged actions to process for a single session when the actions are waiting for a transfer to complete.
         //If backlog exceeds this value, the backlog is considered a flood and the entire list is discarded
-        //Bear in mind that pages with a lot of AJAX can generate lots of silmultaneous calls.
+        //Web pages with a lot of AJAX can generate lots of silmultaneous calls, however most browsers
+        //only allow a low number of silmultaneous AJAX call. 
+        //See http://stackoverflow.com/questions/561046/how-many-concurrent-ajax-xmlhttprequest-requests-are-allowed-in-popular-browser
+        //This value should be greater (a few multiples) of the highest number of concurrent ajax request modern browsers allow.
         const int MaxTransferEndedActionBackLog = 20;
 
         //The maximum number of backlogged messages a user can have in his/her queue
         //if the backlog exceeds this value, the backlog is considered a flood and all messages are discarded
-        //This value should be high and greater than MaxTransferEndedActionBackLog because a user queue can
+        //This value should be high and greater (in a few multiples) than MaxTransferEndedActionBackLog because a user queue can
         //get really long legitimately if the server is slow and the user keeps refreshing the webpage.
         //Also AJAX apps can make a lot of session requests silmultaneously.
+        //See http://stackoverflow.com/questions/561046/how-many-concurrent-ajax-xmlhttprequest-requests-are-allowed-in-popular-browser
         const int MaxUserMessageQueueBacklog = 50;
 
         //The number of message processing threads spawn is derived from this value multipled 
@@ -251,33 +255,31 @@ namespace P2PStateServer
         /// <param name="ReceivedAction">Action to call, if transfer is received</param>
         /// <param name="TimeoutAction">Action to call, if transfer times out</param>
         /// <param name="TimeoutStamp">The time at which the transfer is considered timed out</param>
-        /// <returns>True if this is the first action for this session resource in the list</returns>
-        internal bool NewExpectedTransfer(string SessionKey, Action<string> ReceivedAction, System.Threading.WaitCallback TimeoutAction, DateTime TimeoutStamp)
+        /// <returns>The number of actions for this session resource (including the newly added one)</returns>
+        internal int NewExpectedTransfer(string SessionKey, Action<string> ReceivedAction, System.Threading.WaitCallback TimeoutAction, DateTime TimeoutStamp)
         {
             AsyncResultActions<string> asyncResults = new AsyncResultActions<string>(SessionKey);
             asyncResults.Result1Action = ReceivedAction;
             asyncResults.TimeoutAction = TimeoutAction;
 
-            List<AsyncResultActions<string>> actionList = null;
+            List<AsyncResultActions<string>> actionList;
 
-            bool result;
             lock (syncExpectedTransfers)
             {
                 if (expectedTransfers.TryGetValue(SessionKey, out actionList))
                 {
                     actionList.Add(asyncResults);
-                    result = false;
                 }
                 else
                 {
                     actionList = new List<AsyncResultActions<string>>();
                     actionList.Add(asyncResults);
                     expectedTransfers.Add(TimeoutStamp, SessionKey, actionList);
-                    result = true;
                 }
+
+                return actionList.Count;
             }
 
-            return result;
         }
 
         /// <summary>
@@ -296,7 +298,7 @@ namespace P2PStateServer
                 }
                 else
                 {
-                    //this should never happen - if it does it indicates a wrong code sequence somewhere
+                    //this should never happen because exports are synchronized - if it does happen, it indicates a wrong code sequence somewhere
                     Diags.Fail("ASSERTION FAILED -- Active export already exist in NewActiveExport()");
                 }
             }
@@ -541,7 +543,7 @@ namespace P2PStateServer
         /// </remarks>
         private void RunRequestsPoller()
         {
-            const int SleepTimeOut = 125; //milliseconds
+            const int SleepTimeOut = 1; //milliseconds
 
             while (true) //Loop forever
             {
@@ -629,7 +631,7 @@ namespace P2PStateServer
         /// </remarks>
         private void RunMessageTimeoutProcessor()
         {
-            const int SleepTimeOut = 125; //milliseconds
+            const int SleepTimeOut = 10; //milliseconds
 
             while (true) //Loop forever
             {
@@ -962,7 +964,7 @@ namespace P2PStateServer
 
                 if (calls.Count <= MaxTransferEndedActionBackLog)
                 {
-                    //Queue all success/found actions in the calls list on the thread pool
+                    //Execute all success/found actions in the calls list
 
                     foreach (AsyncResultActions<string> call in calls)
                     {

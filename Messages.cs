@@ -1012,7 +1012,7 @@ namespace P2PStateServer
     /// </remarks>
     public class GetRequest : ServiceRequest
     {
-        short exportCount = 0;
+        //short exportCount = 0;
 
         /// <summary>
         /// Initializes a new instance of the GetRequest class
@@ -1069,15 +1069,23 @@ namespace P2PStateServer
 
 
                 case SessionActionResult.Exporting:
+                    /* Commenting out this code block because the contention issue detected rarely occurs and
+                     * there is a legitimate case where AJAX-intensive websites can bounce a session from one
+                     * peer to the other repeatedly, causing numerous exports to be witnessed by a message
+                     * before it gets a chance to be processed.
+                     
                     if (exportCount > 1)
                     {
                         //This can occur on a rare occasion
                         Diags.LogContentionDetected("GetRequest Export is trying for the second time","Message Ignored");
                         return;
                     }
+                     */
+
+
                     //Already exporting -- try this request after export is complete
                     service.AppendActiveExportEndedEvent(Resource, (delegate(string not_used) { Process(); }));
-                    exportCount++;
+                    //exportCount++;
                     return;
 
             }
@@ -1161,7 +1169,7 @@ namespace P2PStateServer
     public class GetExclusiveRequest : ServiceRequest
     {
 
-        short exportCount = 0;
+        //short exportCount = 0;
 
         /// <summary>
         /// Initializes a new instance of the GetExclusiveRequest class
@@ -1221,16 +1229,22 @@ namespace P2PStateServer
 
 
                 case SessionActionResult.Exporting:
-
+                    /* Commenting out this code block because the contention issue detected rarely occurs and
+                     * there is a legitimate case where AJAX-intensive websites can bounce a session from one
+                     * peer to the other repeatedly, causing numerous exports to be witnessed by a message
+                     * before it gets a chance to be processed.
+                     
                     if (exportCount > 1)
                     {
                         //This can occur on a rare occasion
                         Diags.LogContentionDetected("GetExclusiveRequest Export is trying for the second time", "Message Ignored");
                         return;
                     }
+                     */
+
                     //Already exporting -- try this request after export is complete
                     service.AppendActiveExportEndedEvent(Resource, (delegate(string not_used) { Process(); }));
-                    exportCount++;
+                    //exportCount++;
                     return;
 
             }
@@ -1341,7 +1355,7 @@ namespace P2PStateServer
     /// </remarks>
     public class GetTransferMessage : PeerMessage
     {
-        private short exportCount = 0;
+        //private short exportCount = 0;
 
         /// <summary>
         /// Process the message
@@ -1427,46 +1441,57 @@ namespace P2PStateServer
                     throw;                    
                 }
 
-                //session was not found
-                if (res == SessionActionResult.NotFound)
+                switch (res)
                 {
-                    //If the requested session was recently transferred out by this peer then rebroadcast this message
-                    if (service.SentTransfers.ContainsKey(Resource))
-                    {
-                        //I may have sent this session to a peer after that peer forwarded this message, so rebroadcast
-                        service.SentTransfers.Remove(Resource);
-                        Rebroadcast();
-                    }
-                    else
-                    {
-                        //Forward to peers
-                        Forward();
-                    }
-                }
-                else if (res == SessionActionResult.Exporting)
-                {
-                    if (exportCount > 1)
-                    {
-                        //This should NEVER occur because the ExportEndedAcation doesn't call Process() i'm keeping this clause just in case the Rebroadcast() delegate is changed to Process()
-                        Diags.LogContentionDetected("GetTransferMessage Export is trying for the second time","Message Ignored");
-                        return;
-                    }
+                    case SessionActionResult.NotFound:
+                        //session was not found
 
-                    //This session is already been exported so queue a rebroadcast after the session is done exporting
+                        //If the requested session was recently transferred out by this peer then rebroadcast this message
+                        if (service.SentTransfers.ContainsKey(Resource))
+                        {
+                            //I may have sent this session to a peer after that peer forwarded this message, so rebroadcast
+                            service.SentTransfers.Remove(Resource);
+                            Rebroadcast();
+                        }
+                        else
+                        {
+                            //Forward to peers
+                            Forward();
+                        }
+                        break;
 
-                    //NOTE: There is a chance that the export will fail and this peer will still have the sought session.
-                    //While it is possible to have the Export Ended Action to call process() again and catch this situation, 
-                    //The chance that the transfer will fail is slim and it's a bad idea because if GetTransferMessages 
-                    //are queued, they can start another Export which will lead other queued export ended actions to wait again.
-                    //so it's safer to assume the export succeeded and simply rebroadcast.
+                    case SessionActionResult.Exporting:
+                        /* Commenting out this code block because the contention issue detected rarely occurs and
+                         * there is a legitimate case where AJAX-intensive websites can bounce a session from one
+                         * peer to the other repeatedly, causing numerous exports to be witnessed by a message
+                         * before it gets a chance to be processed.
+                         * 
+                         * PLUS The code will never be executed because it currently queues RebroadCast() and not process
 
-                    //TODO: ENHANCEMENT: If this becomes an issue, one way to deal with this is to have a seperate queue for GetTransfermessages which will
-                    //be called after all actions in the regular queue have been called. In this case the Contention detection code above
-                    //will legitimately catch multiple exports in which case the message should just be ignored.
+                        if (exportCount > 1)
+                        {
+                            //This should NEVER occur because the ExportEndedAcation doesn't call Process() i'm keeping this clause just in case the Rebroadcast() delegate is changed to Process()
+                            Diags.LogContentionDetected("GetTransferMessage Export is trying for the second time", "Message Ignored");
+                            return;
+                        }
+                         */ 
 
-                    service.AppendActiveExportEndedEvent(Resource, delegate(string not_used) { Rebroadcast(); });
-                    exportCount++;
- 
+                        //This session is currently been exported so queue a rebroadcast after the session is done exporting
+
+                        //NOTE: There is a chance that the export will fail and this peer will still have the sought session.
+                        //While it is possible to have the Export Ended Action to call process() again and catch this situation, 
+                        //The chance that the transfer will fail is slim and it's a bad idea because if GetTransferMessages 
+                        //are queued, they can start another Export which will lead other queued export ended actions to wait again.
+                        //so it's safer to assume the export succeeded and simply rebroadcast.
+
+                        //TODO: ENHANCEMENT: If this becomes an issue, one way to deal with this is to have a seperate queue for GetTransfermessages which will
+                        //be called after all actions in the regular queue have been called. In this case the Contention detection code above
+                        //will legitimately catch multiple exports in which case the message should just be ignored.
+
+                        service.AppendActiveExportEndedEvent(Resource, delegate(string not_used) { Rebroadcast(); });
+                        //exportCount++;
+
+                        break;
                 }
                 return;
             }
@@ -1531,7 +1556,7 @@ namespace P2PStateServer
                 //TimeoutAction                
                 delegate(object transferSock)
                 {
-                    //This anonymous method can be called directly from a background thread so make sure its exception-safe
+                    //This anonymous method can be called directly from a background thread so make sure it's exception-safe
                     try
                     {
                         TransferFailure((ServiceSocket)transferSock);
@@ -1630,7 +1655,7 @@ namespace P2PStateServer
 
             if (FoundAction != null && TimeoutAction != null)
             {
-                if (!Service.NewExpectedTransfer(SessionKey, FoundAction, TimeoutAction, TimeoutStamp))
+                if (Service.NewExpectedTransfer(SessionKey, FoundAction, TimeoutAction, TimeoutStamp) > 1)
                 {
                     //There's no point broadcasting another GetTransferMessage since an Action has done this earlier
                     return;
@@ -2793,7 +2818,7 @@ namespace P2PStateServer
     /// </remarks>
     public class ReleaseExclusiveRequest : ServiceRequest
     {
-        short exportCount = 0;
+        //short exportCount = 0;
 
         /// <summary>
         /// Initializes a new instance of the ReleaseExclusiveRequest class
@@ -2850,16 +2875,22 @@ namespace P2PStateServer
                     }
 
                 case SessionActionResult.Exporting:
+                    /* Commenting out this code block because the contention issue detected rarely occurs and
+                     * there is a legitimate case where AJAX-intensive websites can bounce a session from one
+                     * peer to the other repeatedly, causing numerous exports to be witnessed by a message
+                     * before it gets a chance to be processed.                     
 
-                    //Curently exporting -- try this request after export is complete
                     if (exportCount > 1)
                     {
                         //This can occur on a rare occasion
                         Diags.LogContentionDetected("ReleaseExclusiveRequest Export is trying for the second time", "Message Ignored");
                         return;
                     }
+                     */
+
+                    //Currently exporting -- try this request after export is complete
                     service.AppendActiveExportEndedEvent(Resource, (delegate(string not_used) { Process(); }));
-                    exportCount++;
+                    //exportCount++;
                     return;
 
             }
@@ -2943,7 +2974,7 @@ namespace P2PStateServer
     /// </remarks>
     public class RemoveRequest : ServiceRequest
     {
-        short exportCount = 0;
+        //short exportCount = 0;
 
         /// <summary>
         /// Initializes a new instance of the RemoveRequest class
@@ -3006,16 +3037,22 @@ namespace P2PStateServer
                     }
 
                 case SessionActionResult.Exporting:
-                    //Curently exporting -- try this request after export is complete
+                    /* Commenting out this code block because the contention issue detected rarely occurs and
+                     * there is a legitimate case where AJAX-intensive websites can bounce a session from one
+                     * peer to the other repeatedly, causing numerous exports to be witnessed by a message
+                     * before it gets a chance to be processed.
+                     
                     if (exportCount > 1)
                     {
                         //This can occur on a rare occasion
                         Diags.LogContentionDetected("RemoveRequest Export is trying for the second time","Mesasage Ignored");
                         return;
                     }
+                     */
+
                     //Already exporting -- try this request after export is complete
                     service.AppendActiveExportEndedEvent(Resource, (delegate(string not_used) { Process(); }));
-                    exportCount++;
+                    //exportCount++;
                     break;
                 
                 case SessionActionResult.Locked:
@@ -3078,7 +3115,7 @@ namespace P2PStateServer
     /// </remarks>
     public class ResetTimeoutRequest : ServiceRequest
     {
-        short exportCount = 0;
+        //short exportCount = 0;
 
         /// <summary>
         /// Initializes a new instance of the ResetTimeoutRequest class
@@ -3136,16 +3173,22 @@ namespace P2PStateServer
                     }
 
                 case SessionActionResult.Exporting:
-
+                    /* Commenting out this code block because the contention issue detected rarely occurs and
+                     * there is a legitimate case where AJAX-intensive websites can bounce a session from one
+                     * peer to the other repeatedly, causing numerous exports to be witnessed by a message
+                     * before it gets a chance to be processed.
+                     
                     if (exportCount > 1)
                     {
                         //This can occur on a rare occasion
                         Diags.LogContentionDetected("ResetTimeoutRequest Export is trying for the second time","Message Ignored");
                         return;
                     }
+                     */
+
                     //Already exporting -- try this request after export is complete
                     service.AppendActiveExportEndedEvent(Resource, (delegate(string not_used) { Process(); }));
-                    exportCount++;
+                    //exportCount++;
                     return;
 
             }
