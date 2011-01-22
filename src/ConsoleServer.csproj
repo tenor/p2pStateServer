@@ -72,6 +72,12 @@
       <Install>true</Install>
     </BootstrapperPackage>
   </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\lib\BufferPool\src\ServerToolkit.BufferManagement.csproj">
+      <Project>{DB69A550-67B0-40EC-A27E-CFD646D04615}</Project>
+      <Name>ServerToolkit.BufferManagement</Name>
+    </ProjectReference>
+  </ItemGroup>
   <Import Project="$(MSBuildBinPath)\Microsoft.CSharp.targets" />
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
        Other similar extension points exist, see Microsoft.Common.targets.
