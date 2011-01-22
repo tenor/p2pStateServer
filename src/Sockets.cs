@@ -51,7 +51,7 @@ namespace P2PStateServer
         /// <summary>
         /// Initializes a new instance of the ServiceSocket class.
         /// </summary>
-        /// <param name="socket">The .NET Scket object to encapsulate</param>
+        /// <param name="socket">The .NET Socket object to encapsulate</param>
         /// <param name="IsPeerSocket">Indicates if this socket was spawned from the state server peer port</param>
         public ServiceSocket(Socket socket, bool IsPeerSocket)
         {

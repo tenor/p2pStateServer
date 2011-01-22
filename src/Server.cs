@@ -374,13 +374,31 @@ namespace P2PStateServer
         private void AcceptCallback(IAsyncResult ar)
         {
             System.Net.Sockets.Socket listener, incoming;
+            listener = (System.Net.Sockets.Socket)ar.AsyncState;
             try
             {
-                listener = (System.Net.Sockets.Socket)ar.AsyncState;
                 incoming = listener.EndAccept(ar);
             }
-            catch(Exception ex)
+            catch (System.Net.Sockets.SocketException ex)
             {
+                Diags.LogSocketException(ex);
+
+                //Accept the next incoming connection
+                try
+                {
+                    listener.BeginAccept(AcceptCallback, listener);
+                }
+                catch (Exception ex2)
+                {
+                    Diags.LogSocketException(ex2);
+
+                }
+
+                return;
+            }
+            catch (Exception ex)
+            {
+                //This block catches all other exceptions including ObjectDisposedExceptions
                 Diags.LogSocketException(ex);
                 return;
             }
@@ -1004,6 +1022,8 @@ namespace P2PStateServer
         /// </summary>
         public void Start()
         {
+
+            Diags.LogStartingUpMessage();
 
             if (!settings.StandaloneMode)
             {

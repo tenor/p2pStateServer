@@ -331,7 +331,13 @@ namespace P2PStateServer
             Debug.WriteLine( "[" + GetFormattedTime(DateTime.Now) + "] " + string.Format("Contention detected for session {0}: {1} \n", Resource, Activity), "SERVER");
         }
 
-        [Conditional("VERBOSE")]
+        [Conditional("DEBUG")]
+        static public void LogStartingUpMessage()
+        {
+            Debug.WriteLine("[" + GetFormattedTime(DateTime.Now) + "] " + string.Format("STARTING SERVER ... \n"), "SERVER");
+        }
+
+        [Conditional("DEBUG")]
         static public void LogShuttingdownMessage()
         {
             Debug.WriteLine("[" + GetFormattedTime(DateTime.Now) + "] " + string.Format("SHUTTING DOWN SERVER ... \n"), "SERVER");

@@ -4162,7 +4162,7 @@ namespace P2PStateServer
     {
 
         //Max data to receive at a time
-        const int BufferSize = 16384;
+        const int BufferSize = 32768;
 
         //Max number of bytes in a line
         const int MaxLineLength = 2048;
