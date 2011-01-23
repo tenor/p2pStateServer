@@ -20,6 +20,7 @@ using System;
 using System.Net;
 using System.Net.Sockets;
 using System.Collections.Generic;
+using ServerToolkit.BufferManagement;
 
 namespace P2PStateServer
 {
@@ -37,6 +38,9 @@ namespace P2PStateServer
         //Max Backlogged connections on listening sockets
         const int MaxConnections = 10000;
 
+        //Free buffer after use always if its size is greater than this threshold
+        const int BufferRenewalSizeThreshold = 80 * 1024;
+
         Socket socket; //encapsulated socket
         bool fromPeerListener; //True if socket was spawned from peer port i.e socket conneted to peer port and was then handled
         object syncSocket = new object(); //used to synchronize socket operations
@@ -47,26 +51,29 @@ namespace P2PStateServer
         bool isClosing = false; //True if socket is shutting down
         DateTime referenceTime = DateTime.MinValue; //A reference time used by the state server
         Queue<ResponseData> sentMsgs = new Queue<ResponseData>(); //List of recently sent messages
+        IBufferPool bufferPool = null; //BufferPool used by this socket
+        IBuffer recvBuffer = null; //Buffer were data is received by this socket
 
         /// <summary>
         /// Initializes a new instance of the ServiceSocket class.
         /// </summary>
         /// <param name="socket">The .NET Socket object to encapsulate</param>
         /// <param name="IsPeerSocket">Indicates if this socket was spawned from the state server peer port</param>
-        public ServiceSocket(Socket socket, bool IsPeerSocket)
+        public ServiceSocket(Socket socket, bool IsPeerSocket, IBufferPool Buffers)
         {
             this.socket = socket;
             fromPeerListener = IsPeerSocket;
             sessionKey = null;
             id = Guid.NewGuid();
+            bufferPool = Buffers;
         }
 
         /// <summary>
         /// Initializes a new instance of the ServiceSocket class.
         /// </summary>
         /// <param name="IsPeerSocket">Indicates if this socket was spawned from the state server peer port</param>
-        public ServiceSocket(bool IsPeerSocket)
-            : this(new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp), IsPeerSocket)
+        public ServiceSocket(bool IsPeerSocket, IBufferPool Buffers)
+            : this(new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp), IsPeerSocket, Buffers)
         { }
 
         /// <summary>
@@ -235,13 +242,24 @@ namespace P2PStateServer
         /// <param name="ReadCallBack">Method to call on receiving data</param>
         /// <param name="StateObject">State object to be passed to ReadCallBack</param>
         /// <returns>AsyncResult for the asynchronous operation</returns>
-        public IAsyncResult BeginReceive(byte[] Buffer, AsyncCallback ReadCallBack, object StateObject)
+        public IAsyncResult BeginReceive(int BufferLength, AsyncCallback ReadCallBack, object StateObject)
         {
             try
             {
+
+                if (recvBuffer == null || recvBuffer.IsDisposed)
+                {
+                    recvBuffer = bufferPool.GetBuffer(BufferLength);
+                }
+                else if (recvBuffer.Size < BufferLength)
+                {
+                    recvBuffer.Dispose();
+                    recvBuffer = bufferPool.GetBuffer(BufferLength);
+                }
+
                 lock (syncSocket)
                 {
-                    return socket.BeginReceive(Buffer, 0, Buffer.Length, SocketFlags.None, ReadCallBack, StateObject);
+                    return socket.BeginReceive(recvBuffer.GetArraySegments(), SocketFlags.None, ReadCallBack, StateObject);
                 }
             }
             catch (Exception ex)
@@ -257,16 +275,16 @@ namespace P2PStateServer
         /// </summary>
         /// <param name="ar">AsyncResult obtained from BeginReive</param>
         /// <param name="Error">Indicates an error occured while receiving data</param>
-        /// <param name="BytesRead">Number of bytes read</param>
-        public void EndReceive(IAsyncResult ar, out bool Error, out int BytesRead)
+        /// <returns>Received Data</returns>
+        public byte[] EndReceive(IAsyncResult ar, out bool Error)
         {
             Error = false;
-            BytesRead = 0;
+            int bytesRead = 0;
             try
             {
                 lock (syncSocket)
                 {
-                    BytesRead = socket.EndReceive(ar);
+                    bytesRead = socket.EndReceive(ar);
                 }
             }
             catch (ObjectDisposedException ex)
@@ -282,6 +300,34 @@ namespace P2PStateServer
                 Diags.LogSocketException(ex);
                 Error = true;
             }
+
+            byte[] readData;
+            if (Error || bytesRead < 0)
+            {
+                readData = new byte[0];
+            }
+            else
+            {
+                readData = new byte[bytesRead];
+            }
+            
+
+            if (recvBuffer != null && !recvBuffer.IsDisposed)
+            {
+                if (!Error && bytesRead > 0)
+                {
+                    recvBuffer.CopyTo(readData,0,bytesRead);
+                }
+
+                //Dispose buffer if it's greater than a specified threshold
+                if (recvBuffer.Size > BufferRenewalSizeThreshold)
+                {
+                    recvBuffer.Dispose();
+                }
+            }
+
+            return readData;
+
         }
 
         /// <summary>
@@ -352,6 +398,13 @@ namespace P2PStateServer
                     isClosing = true;
                     socket.Close(1);
                 }
+
+                if (recvBuffer != null)
+                {
+                    recvBuffer.Dispose();
+                }
+
+
             }
             catch (Exception ex)
             {
@@ -374,7 +427,14 @@ namespace P2PStateServer
                     }
                     isClosing = true;
                     socket.Close();
+
                 }
+
+                if (recvBuffer != null)
+                {
+                    recvBuffer.Dispose();
+                }
+
             }
             catch (Exception ex)
             {
@@ -390,6 +450,8 @@ namespace P2PStateServer
         public void Send(ResponseData Message)
         {
 
+            IBuffer sendBuffer = null;
+
             //TODO: ENHANCEMENT: Log consecutive bad request response types and use that information to disconnect socket after 3
             try
             {
@@ -404,7 +466,9 @@ namespace P2PStateServer
                     //Log error if .Data is null -- this will help raise a flag if the message is being resent after .ClearData was called
                     Diags.Assert(Message.Data != null, "ASSERTION FAILED: Message Data is null", new System.Diagnostics.StackTrace().ToString());
 
-                    socket.BeginSend(Message.Data, 0, Message.Data.Length, SocketFlags.None, CompleteSend, null);
+                    sendBuffer = bufferPool.GetBuffer(Message.Data.LongLength);
+                    sendBuffer.CopyFrom(Message.Data);
+                    socket.BeginSend(sendBuffer.GetArraySegments(), SocketFlags.None, CompleteSend, sendBuffer);
 
                     Message.ClearData(); //free some memory
 
@@ -413,6 +477,11 @@ namespace P2PStateServer
             catch (Exception ex)
             {
                 Diags.LogSocketException(ex);
+                if (sendBuffer != null)
+                {
+                    sendBuffer.Dispose();
+                    sendBuffer = null;
+                }
             }
 
 
@@ -484,6 +553,7 @@ namespace P2PStateServer
         private void CompleteSend(IAsyncResult ar)
         {            
             // Complete asynchronous send
+            IBuffer sendBuffer = (IBuffer)ar.AsyncState;
             try
             {
                 if (!socket.Connected)
@@ -494,11 +564,17 @@ namespace P2PStateServer
                 {
                     socket.EndSend(ar);
                 }
+                sendBuffer.Dispose();
+                sendBuffer = null;
             }
             catch (Exception ex)
             {
                 Diags.LogSocketException(ex);
-                return;
+                if (sendBuffer != null)
+                {
+                    sendBuffer.Dispose();
+                    sendBuffer = null;
+                }
             }
         }
 

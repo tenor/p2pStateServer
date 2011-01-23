@@ -20,6 +20,7 @@ using System;
 using System.Collections.Generic;
 using System.Configuration;
 using System.Threading;
+using ServerToolkit.BufferManagement;
 
 //TODO: Undefine NET20 symbol if targeting .NET 3.5
 namespace P2PStateServer
@@ -424,7 +425,7 @@ namespace P2PStateServer
 
             }
 
-            ServiceSocket handler = new ServiceSocket(incoming, listener == peerListener);
+            ServiceSocket handler = new ServiceSocket(incoming, listener == peerListener, ServerBufferPool.Instance);
             handler.ReferenceTime = DateTime.UtcNow;
 
             //Add new connection to connections list
@@ -436,7 +437,7 @@ namespace P2PStateServer
             HTTPPartialData partialData = new HTTPPartialData(handler);
 
             //Let handler receive incoming data -- do this for all other sockets everywhere
-            handler.BeginReceive(partialData.Buffer, ReadCallback, partialData);
+            handler.BeginReceive(HTTPPartialData.BufferSize, ReadCallback, partialData);
 
 
         }
@@ -452,10 +453,9 @@ namespace P2PStateServer
 
                 HTTPPartialData partialData = (HTTPPartialData)ar.AsyncState;
 
-                //Read data
-                int bytesRead;
+                //Read data                
                 bool errorReading;
-                partialData.HandlerSocket.EndReceive(ar,out errorReading,out bytesRead);
+                byte[] data = partialData.HandlerSocket.EndReceive(ar,out errorReading);
 
                 if (errorReading)
                 {
@@ -465,10 +465,11 @@ namespace P2PStateServer
                     return;
                 }
 
+                int bytesRead = data.Length;
                 //Append read data
                 if (bytesRead > 0)
                 {
-                    partialData.Append(bytesRead);
+                    partialData.Append(data);
                 }
                 else
                 {
@@ -532,14 +533,14 @@ namespace P2PStateServer
 
                     //Create brand new Partial Data object and read from there
                     HTTPPartialData pData = new HTTPPartialData(partialData.HandlerSocket);
-                    pData.HandlerSocket.BeginReceive(pData.Buffer, ReadCallback, pData);
+                    pData.HandlerSocket.BeginReceive(HTTPPartialData.BufferSize, ReadCallback, pData);
 
 
                 }
                 else
                 {
                     //Read/Expect more data                    
-                    partialData.HandlerSocket.BeginReceive(partialData.Buffer, ReadCallback, partialData);
+                    partialData.HandlerSocket.BeginReceive(HTTPPartialData.BufferSize, ReadCallback, partialData);
                 }
             }
             catch (Exception ex)
@@ -1543,7 +1544,7 @@ namespace P2PStateServer
         {
             if (!settings.StandaloneMode)
             {
-                ServiceSocket peerSock = new ServiceSocket(true);
+                ServiceSocket peerSock = new ServiceSocket(true, ServerBufferPool.Instance);
 
                 Interlocked.Increment(ref connectingPeersCount);
                 lock (syncLivePeerEndPointTracker)
@@ -1611,7 +1612,7 @@ namespace P2PStateServer
             }
 
             HTTPPartialData partialData = new HTTPPartialData(handler);
-            handler.BeginReceive(partialData.Buffer, ReadCallback, partialData);
+            handler.BeginReceive(HTTPPartialData.BufferSize, ReadCallback, partialData);
 
             if (settings.AuthenticatePeers)
             {
@@ -1708,7 +1709,7 @@ namespace P2PStateServer
             }
 
             HTTPPartialData partialData = new HTTPPartialData(handler);
-            handler.BeginReceive(partialData.Buffer, ReadCallback, partialData);
+            handler.BeginReceive(HTTPPartialData.BufferSize, ReadCallback, partialData);
 
             TransferSession(handler, resourceKey, sessionInfo, data, successAction, failedAction, alreadyExistsAction, peerShuttingDownAction, timeoutAction);
 
@@ -1731,7 +1732,7 @@ namespace P2PStateServer
         {
             if (!settings.StandaloneMode)
             {
-                ServiceSocket peerSock = new ServiceSocket(true);
+                ServiceSocket peerSock = new ServiceSocket(true, ServerBufferPool.Instance);
                 Diags.LogConnectingSessionTransferPeer(endPoint.ToString());
                 peerSock.BeginConnect(
                     endPoint.Host, endPoint.Port, TransferConnectCallback,
@@ -1814,6 +1815,36 @@ namespace P2PStateServer
         }
 
         #endregion
+
+        /// <summary>
+        /// Provides a lazy-loaded singleton BufferPool.
+        /// </summary>
+        protected sealed class ServerBufferPool
+        {
+            ServerBufferPool()
+            {
+            }
+
+            public static BufferPool Instance
+            {
+                get
+                {
+                    return Internal.instance;
+                }
+            }
+
+            class Internal
+            {
+                // Explicit static constructor to tell C# compiler not to mark type as beforefieldinit
+                static Internal()
+                {
+                }
+
+                //A 5MB sized buffer-pool
+                internal static readonly BufferPool instance = new BufferPool(5 * 1024 * 1024, 1, 2);
+            }
+        }
+
 
     }
 
@@ -2634,6 +2665,7 @@ namespace P2PStateServer
         }
 
     }
+
 
 
 }

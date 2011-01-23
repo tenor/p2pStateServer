@@ -4162,7 +4162,7 @@ namespace P2PStateServer
     {
 
         //Max data to receive at a time
-        const int BufferSize = 32768;
+        public const int BufferSize = 32768;
 
         //Max number of bytes in a line
         const int MaxLineLength = 2048;
@@ -4199,7 +4199,7 @@ namespace P2PStateServer
             handler = HandlerSocket;
 
             lines = new List<byte[]>();
-            buffer = new byte[BufferSize];
+            buffer = new byte[0];
             content = null;
             bufferedLine = new byte[MaxLineLength];
             totalLength = 0;
@@ -4224,15 +4224,6 @@ namespace P2PStateServer
         public byte[] Content
         {
             get { return content; }
-        }
-
-        /// <summary>
-        /// Gets or sets the buffer where transmitted data is stored
-        /// </summary>
-        public byte[] Buffer
-        {
-            get { return buffer; }
-            set { buffer = value; }
         }
 
         /// <summary>
@@ -4263,16 +4254,19 @@ namespace P2PStateServer
         }
 
         /// <summary>
-        /// Reads data from the receive buffer and fills the partial data object with the read data
+        /// Reads passed in data and fills the partial data object with the read data
         /// </summary>
-        /// <param name="DataLength">Length of data to read, in bytes</param>
-        public void Append(int DataLength)
+        /// <param name="Data">Data to read, in bytes</param>
+        public void Append(byte[] Data)
         {
-            if (DataLength > 0 && !isError && !isComplete)
-            {
-                totalLength += DataLength;
+            int dataLength = Data.Length;
 
-                for (int i = 0; i < DataLength; i++)
+            if (dataLength > 0 && !isError && !isComplete)
+            {
+                buffer = Data;
+                totalLength += dataLength;
+
+                for (int i = 0; i < dataLength; i++)
                 {
 
                     bufferPos++;
@@ -4349,7 +4343,7 @@ namespace P2PStateServer
                     else
                     {
                         //Data is longer than contentlength
-                        if (DataLength + bufferPos - i > contentLength)
+                        if (dataLength + bufferPos - i > contentLength)
                         {
                             //TODO: FEATURE: PIPELINING: This shouldn't be an error after pipelining is implemented
                             isError = true;
@@ -4357,9 +4351,9 @@ namespace P2PStateServer
                         }
 
                         //Copy the data
-                        //TODO: FEATURE: PIPELINING: For pipelining, copy only up to conent-Length , not the entire data
-                        Array.Copy(buffer, i, content, bufferPos, DataLength - i);
-                        bufferPos += DataLength - (i + 1);
+                        //TODO: FEATURE: PIPELINING: For pipelining, copy only up to content-Length , not the entire data
+                        Array.Copy(buffer, i, content, bufferPos, dataLength - i);
+                        bufferPos += dataLength - (i + 1);
 
                         if (bufferPos == contentLength - 1)
                         {
