@@ -4178,7 +4178,6 @@ namespace P2PStateServer
         ServiceSocket handler; //Socket receiving data  
 
         List<byte[]> lines; // List of HTTP lines
-        byte[] buffer; // Buffer where socket stores data
         byte[] content; // HTTP content data
         byte[] bufferedLine; // Line where data is appended before moved to list
         int totalLength; //total length of received information
@@ -4199,7 +4198,6 @@ namespace P2PStateServer
             handler = HandlerSocket;
 
             lines = new List<byte[]>();
-            buffer = new byte[0];
             content = null;
             bufferedLine = new byte[MaxLineLength];
             totalLength = 0;
@@ -4263,7 +4261,6 @@ namespace P2PStateServer
 
             if (dataLength > 0 && !isError && !isComplete)
             {
-                buffer = Data;
                 totalLength += dataLength;
 
                 for (int i = 0; i < dataLength; i++)
@@ -4280,11 +4277,11 @@ namespace P2PStateServer
                         }
 
                         //Copy byte to bufferedData
-                        byte b = buffer[i];
+                        byte b = Data[i];
                         bufferedLine[bufferPos] = b;
 
                         //look for CRLF
-                        if (b == 10 && i > 0 && buffer[i - 1] == 13)
+                        if (b == 10 && i > 0 && Data[i - 1] == 13)
                         {
                             if (lines.Count == MaxLines)
                             {
@@ -4352,7 +4349,7 @@ namespace P2PStateServer
 
                         //Copy the data
                         //TODO: FEATURE: PIPELINING: For pipelining, copy only up to content-Length , not the entire data
-                        Array.Copy(buffer, i, content, bufferPos, dataLength - i);
+                        Array.Copy(Data, i, content, bufferPos, dataLength - i);
                         bufferPos += dataLength - (i + 1);
 
                         if (bufferPos == contentLength - 1)

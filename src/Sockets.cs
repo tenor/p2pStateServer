@@ -259,7 +259,7 @@ namespace P2PStateServer
 
                 lock (syncSocket)
                 {
-                    return socket.BeginReceive(recvBuffer.GetArraySegments(), SocketFlags.None, ReadCallBack, StateObject);
+                    return socket.BeginReceive(recvBuffer.GetSegments(), SocketFlags.None, ReadCallBack, StateObject);
                 }
             }
             catch (Exception ex)
@@ -468,7 +468,7 @@ namespace P2PStateServer
 
                     sendBuffer = bufferPool.GetBuffer(Message.Data.LongLength);
                     sendBuffer.CopyFrom(Message.Data);
-                    socket.BeginSend(sendBuffer.GetArraySegments(), SocketFlags.None, CompleteSend, sendBuffer);
+                    socket.BeginSend(sendBuffer.GetSegments(), SocketFlags.None, CompleteSend, sendBuffer);
 
                     Message.ClearData(); //free some memory
 
