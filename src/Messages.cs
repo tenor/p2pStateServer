@@ -478,7 +478,7 @@ namespace P2PStateServer
     /// </summary>
     /// <remarks>
     /// The ServiceResponse class represents a response message from a peer to another or from a state server to a client (web server) in response to a request.
-    /// Response messages should be derived from the ServiceRequest class.
+    /// Response messages should be derived from the ServiceResponse class.
     /// </remarks>
     public abstract class ServiceResponse : ServiceMessage
     {
@@ -494,6 +494,11 @@ namespace P2PStateServer
         protected string actionFlags;
 
         /// <summary>
+        /// The request ID associated with the response 
+        /// </summary>
+        protected Guid? assocID;
+
+        /// <summary>
         /// Initializes a new instance of the ServiceResponse class
         /// </summary>
         /// <param name="Data">The HTTPPartialData class to load this instance from</param>
@@ -503,6 +508,20 @@ namespace P2PStateServer
         {
             actionFlags = headers["ACTIONFLAGS"];
             aspNetVersion = headers["X-ASPNET-VERSION"];
+
+            assocID = null;
+            if (headers["X-ASSOC-ID"] != null)
+            {
+                try
+                {
+                    assocID = new Guid(headers["X-ASSOC-ID"]);
+                }
+                catch
+                {
+                    assocID = null;
+                }
+
+            }
         }
 
         /// <summary>
@@ -518,15 +537,6 @@ namespace P2PStateServer
                 return false;
             }
 
-            //Check last message sent
-            ResponseData[] sentMsgs = socket.SentMessages;
-            if (sentMsgs != null && sentMsgs.Length > 0 && sentMsgs[sentMsgs.Length - 1].ResponseType.IsSubclassOf(typeof(ServiceResponse))) 
-            {
-                //Last Sent Message should be a Request or nothing at all
-                //Abort connection
-                socket.Abort();
-                return false;                
-            }
 
             return true;
         }
@@ -542,16 +552,16 @@ namespace P2PStateServer
             {
                 Type lastMsg = sentMsgs[sentMsgs.Length - 1].ResponseType;
 
-                if (lastMsg == typeof(BeginAuthRequest) || lastMsg == typeof(CompleteAuthRequest) || lastMsg == typeof(SetTransferRequest))
+                if (lastMsg == typeof(BeginAuthRequest) || lastMsg == typeof(CompleteAuthRequest))
                 {
                     //Last sent message was a BeginAuthRequest or a CompleteAuthRequest or a SetTransferRequest
 
                     //Look for the scavenger's reference object for the original BeginAuth/CompleteAuth/SetTransfer request
                     //if the object is still valid, then call the method to tell the original request that things didn't go well
                     AsyncResultActions<ServiceSocket> calls;
-                    if (service.AsyncRequests.TryGetValue(socket, out calls))
+                    if (service.AsyncSocketRequests.TryGetValue(socket, out calls))
                     {
-                        if (service.AsyncRequests.Remove(socket))
+                        if (service.AsyncSocketRequests.Remove(socket))
                         {
                             calls.InvokeResult2Action(); //Result2 is the failure result
                             return;
@@ -559,6 +569,25 @@ namespace P2PStateServer
                     }
 
                     return; //Async operation has already been handled
+                }
+                else if (assocID.HasValue)
+                {
+                    //Check if it's for an AsyncMessage
+
+                    //Remove reference object for this request from scavenger's list
+                    AsyncResultActions<AsyncMessage> calls;
+                    if (service.AsyncMessageRequests.TryGetValue(assocID.Value, out calls))
+                    {
+                        if (service.AsyncMessageRequests.Remove(assocID.Value))
+                        {
+                            //Call the 'Failure' method for the original request that initiated the transfer
+                            calls.InvokeResult2Action(); //Result2 is the failure action
+                            return;
+                        }
+                    }
+
+                    return; //This async operation was previously handled
+
                 }
 
             }
@@ -584,6 +613,15 @@ namespace P2PStateServer
         {
             get { return aspNetVersion; }
         }
+
+        /// <summary>
+        /// Gets the request id associated with this response
+        /// </summary>
+        public Guid? AssociatedRequestID
+        {
+            get { return assocID; }
+        }
+
     }
 
     /// <summary>
@@ -592,7 +630,7 @@ namespace P2PStateServer
     /// <remarks>
     /// The PeerMessage class represents a peer-to-peer message.
     /// PeerMessages can be sent at anytime and are not required to be responded to.
-    /// Peer messages should be derived from the ServiceRequest class.
+    /// Peer messages should be derived from the PeerMessage class.
     /// </remarks>
     public abstract class PeerMessage : ServiceMessage
     {
@@ -765,14 +803,17 @@ namespace P2PStateServer
         {
             if( base.Validate() == false) return false;
 
-            //Check last message sent
-            ResponseData[] sentMsgs = socket.SentMessages;
-            if (sentMsgs != null && sentMsgs.Length > 0 && sentMsgs[sentMsgs.Length - 1].ResponseType.IsSubclassOf(typeof(ServiceRequest))) 
+            //Check last message sent if message source is not a peer
+            if (!SourceIsPeer)
             {
-                //Last Sent Message should be a Response or nothing at all
-                //Abort connection
-                socket.Abort();
-                return false;
+                ResponseData[] sentMsgs = socket.SentMessages;
+                if (sentMsgs != null && sentMsgs.Length > 0 && sentMsgs[sentMsgs.Length - 1].ResponseType.IsSubclassOf(typeof(ServiceRequest)))
+                {
+                    //Last Sent Message should be a Response or nothing at all
+                    //Abort connection
+                    socket.Abort();
+                    return false;
+                }
             }
 
             return true;
@@ -1520,46 +1561,46 @@ namespace P2PStateServer
 
             service.TransferSession(new ServerSettings.HostEndPoint(remoteHost.Trim(), remotePort.Value), Resource, response, Session.Data,
                 //SuccessAction
-                delegate(ServiceSocket transferSock)
+                delegate(AsyncMessage asyncMsg)
                 {
                     //Add this transfer to list of recently transferred sessions and have it expire in 15 seconds
                     service.SentTransfers.Add(DateTime.UtcNow + new TimeSpan(0, 0, sentTransferExpiryTime), Resource, null);
 
-                    TransferSuccess(transferSock);
+                    TransferSuccess(asyncMsg);
                     Diags.LogTransferSuccess(Resource);
                 },
 
                 //FailedAction
-                delegate(ServiceSocket transferSock)
+                delegate(AsyncMessage asyncMsg)
                 {
-                    TransferFailure(transferSock);
+                    TransferFailure(asyncMsg);
                     Diags.LogTransferFailed(Resource, string.Empty);
                 },
 
                 //AlreadyExistsAction
-                delegate(ServiceSocket transferSock)
+                delegate(AsyncMessage asyncMsg)
                 {
                     //Add this transfer to list of recently transferred sessions and have it expire in 15 seconds
                     service.SentTransfers.Add(DateTime.UtcNow + new TimeSpan(0, 0, sentTransferExpiryTime), Resource, null);
 
-                    TransferSuccess(transferSock);
+                    TransferSuccess(asyncMsg);
                     Diags.LogTransferFailed(Resource, "Resource already exists in remote peer -- deleted local copy");
                 },
 
                 //PeerShuttingDownAction
-                delegate(ServiceSocket transferSock)
+                delegate(AsyncMessage asyncMsg)
                 {
-                    TransferFailure(transferSock);
+                    TransferFailure(asyncMsg);
                     Diags.LogTransferFailed(Resource, "Peer is shutting down");
                 },
 
                 //TimeoutAction                
-                delegate(object transferSock)
+                delegate(object asyncMsg)
                 {
                     //This anonymous method can be called directly from a background thread so make sure it's exception-safe
                     try
                     {
-                        TransferFailure((ServiceSocket)transferSock);
+                        TransferFailure((AsyncMessage)asyncMsg);
                         Diags.LogTransferFailed(Resource, "Timed out");
                     }
                     catch (Exception ex)
@@ -1574,17 +1615,17 @@ namespace P2PStateServer
         /// <summary>
         /// Ends a successful session transfer
         /// </summary>
-        /// <param name="TransferringSocket">The ServiceSocket over which the session data was being transferred</param>
-        private void TransferSuccess(ServiceSocket TransferringSocket)
+        /// <param name="transferredMessage">The AsyncMessage object representing the transfer.</param>
+        private void TransferSuccess(AsyncMessage transferredMessage)
         {
 
             List<AsyncResultActions<string>> calls = service.RemoveActiveExport(Resource);
             service.SessionTable.EndExport(Resource, true);
 
-            if (TransferringSocket.IsConnected)
+            if (transferredMessage.Socket.IsConnected)
             {
-                Diags.LogDisconnectingPeer(TransferringSocket.RemoteIP);
-                TransferringSocket.Close();
+                Diags.LogDisconnectingPeer(transferredMessage.Socket.RemoteIP);
+                transferredMessage.Socket.Close();
 
             }
 
@@ -1595,16 +1636,16 @@ namespace P2PStateServer
         /// <summary>
         /// Ends a failed Session Transfer
         /// </summary>
-        /// <param name="TransferringSocket">The ServiceSocket over which the session data was being transferred</param>
-        private void TransferFailure(ServiceSocket TransferringSocket)
+        /// <param name="transferredMessage">The AsyncMessage object representing the transfer.</param>
+        private void TransferFailure(AsyncMessage transferredMessage)
         {
             List<AsyncResultActions<string>> calls = service.RemoveActiveExport(Resource);
             service.SessionTable.EndExport(Resource, false);
 
-            if (TransferringSocket.IsConnected)
+            if (transferredMessage.Socket.IsConnected)
             {
-                Diags.LogDisconnectingPeer(TransferringSocket.RemoteIP);
-                TransferringSocket.Close();
+                Diags.LogDisconnectingPeer(transferredMessage.Socket.RemoteIP);
+                transferredMessage.Socket.Close();
 
             }
 
@@ -2008,7 +2049,7 @@ namespace P2PStateServer
 
             if (ResponseType == typeof(UnauthorizedResponse))
             {             
-                UnauthorizedResponse.AppendResponse(sb, ResponseMessage, service.ASPNETVersion, requestedNonce, service.Authenticator.Realm, service.Authenticator.HashAlgorithmName );
+                UnauthorizedResponse.AppendResponse(sb, ResponseMessage, null, service.ASPNETVersion, requestedNonce, service.Authenticator.Realm, service.Authenticator.HashAlgorithmName );
 
             }
             else if (ResponseType == typeof(BadRequestResponse))
@@ -2047,7 +2088,7 @@ namespace P2PStateServer
             asyncResults.Result2Action = FailAction;
             asyncResults.TimeoutAction = TimeoutAction;
 
-            Service.AsyncRequests.Add(DateTime.UtcNow + Timeout, socket, asyncResults); 
+            Service.AsyncSocketRequests.Add(DateTime.UtcNow + Timeout, socket, asyncResults); 
                         
             socket.Send(rdata);
             Diags.LogSend(socket, rdata);
@@ -2259,7 +2300,7 @@ namespace P2PStateServer
             }
             else if (ResponseType == typeof(UnauthorizedResponse))
             {
-                UnauthorizedResponse.AppendResponse(sb, ResponseMessage, service.ASPNETVersion, requestedNonce, service.Authenticator.Realm, service.Authenticator.HashAlgorithmName);
+                UnauthorizedResponse.AppendResponse(sb, ResponseMessage, null, service.ASPNETVersion, requestedNonce, service.Authenticator.Realm, service.Authenticator.HashAlgorithmName);
 
             }
             else if (ResponseType == typeof(BadRequestResponse))
@@ -2527,7 +2568,7 @@ namespace P2PStateServer
 
             if(ResponseType == typeof(OKResponse))
             {
-                OKResponse.AppendResponse(sb, ResponseMessage, service.ASPNETVersion, 0);                    
+                OKResponse.AppendResponse(sb, ResponseMessage, null, service.ASPNETVersion, 0);                    
             }
             else if (ResponseType == typeof(LockedResponse))
             {
@@ -2559,6 +2600,8 @@ namespace P2PStateServer
         DateTime lastModified;
         DateTime? lockDate;
         TimeSpan? lockAge;
+        Guid id;
+
 
         /// <summary>
         /// Initializes a new instance of the SetTransferRequest class
@@ -2620,6 +2663,20 @@ namespace P2PStateServer
                 }
             }
 
+            id = Guid.Empty;
+            if (headers["X-ID"] != null)
+            {
+                try
+                {
+                    id = new Guid(headers["X-ID"]);
+                }
+                catch
+                {
+                    id = Guid.Empty;
+                }
+
+            }
+
             //Validate 
             if (!isError)
             {
@@ -2638,6 +2695,9 @@ namespace P2PStateServer
 
                 //LockCookie must be valid
                 if (lockCookie.HasValue && LockCookie.Value > MAX_LockCookieValue) isError = true;
+
+                //ID must be present
+                if (id == Guid.Empty) isError = true;
             }
 
         }
@@ -2713,24 +2773,23 @@ namespace P2PStateServer
 
             if (ResponseType == typeof(OKResponse))
             {
-                OKResponse.AppendResponse(sb,ResponseMessage,service.ASPNETVersion,0);
-
+                OKResponse.AppendResponse(sb,ResponseMessage, id, service.ASPNETVersion,0);
             }
             else if (ResponseType == typeof(UnauthorizedResponse))
             {
-                UnauthorizedResponse.AppendResponse(sb, ResponseMessage, service.ASPNETVersion, service.Authenticator.GetNewChallenge(), service.Authenticator.Realm, service.Authenticator.HashAlgorithmName);
+                UnauthorizedResponse.AppendResponse(sb, ResponseMessage, id, service.ASPNETVersion, service.Authenticator.GetNewChallenge(), service.Authenticator.Realm, service.Authenticator.HashAlgorithmName);
             }
             else if (ResponseType == typeof(BadRequestResponse))
             {
-                BadRequestResponse.AppendResponse(sb, ResponseMessage, service.ASPNETVersion);
+                BadRequestResponse.AppendResponse(sb, ResponseMessage, id, service.ASPNETVersion);
             }
             else if (ResponseType == typeof(ServiceUnavailableResponse))
             {
-                ServiceUnavailableResponse.AppendResponse(sb, ResponseMessage, service.ASPNETVersion);
+                ServiceUnavailableResponse.AppendResponse(sb, ResponseMessage, id, service.ASPNETVersion);
             }
             else if (ResponseType == typeof(PreconditionFailedResponse))
             {
-                PreconditionFailedResponse.AppendResponse(sb, ResponseMessage, service.ASPNETVersion);
+                PreconditionFailedResponse.AppendResponse(sb, ResponseMessage, id, service.ASPNETVersion);
             }
             else
             {
@@ -2745,7 +2804,7 @@ namespace P2PStateServer
         /// <summary>
         /// Sends a SetTransferRequest message to a specified ServiceSocket
         /// </summary>
-        /// <param name="socket">The target ServiceSocket</param>
+        /// <param name="connectedMsg">AsyncMessage object holding connected socket</param>
         /// <param name="Service">The state server instance</param>
         /// <param name="Resource">The URI associated with the message</param>
         /// <param name="SessionInfo">The Session information used to populate fields in the message</param>
@@ -2756,12 +2815,12 @@ namespace P2PStateServer
         /// <param name="PeerShuttingDownAction">The Action to call if the recipient peer is shutting down</param>
         /// <param name="TimeoutAction">The Action to call if the transfer timed out. This Action's processing time should be very short because a long list of Timeout actions can be daisy-chained and called one after the other</param>
         /// <param name="Timeout">The timeout time span</param>
-        public static void Send(ServiceSocket socket, StateServer Service, string Resource, ISessionResponseInfo SessionInfo,
-            byte[] Data, Action<ServiceSocket> SuccessAction, Action<ServiceSocket> FailAction, Action<ServiceSocket> AlreadyExistsAction, Action<ServiceSocket> PeerShuttingDownAction, System.Threading.WaitCallback TimeoutAction, TimeSpan Timeout)
+        public static void Send(AsyncMessage connectedMsg, StateServer Service, string Resource, ISessionResponseInfo SessionInfo,
+            byte[] Data, Action<AsyncMessage> SuccessAction, Action<AsyncMessage> FailAction, Action<AsyncMessage> AlreadyExistsAction, Action<AsyncMessage> PeerShuttingDownAction, System.Threading.WaitCallback TimeoutAction, TimeSpan Timeout)
         {
             StringBuilder headers = new StringBuilder();
 
-            headers.AppendFormat("PUT {0} HTTP/1.1\r\nHost: {1}\r\n", Resource, Service.ServerIP ?? socket.LocalIP);
+            headers.AppendFormat("PUT {0} HTTP/1.1\r\nHost: {1}\r\nX-ID: {2}\r\n", Resource, Service.ServerIP ?? connectedMsg.Socket.LocalIP,  connectedMsg.ID.ToString("N"));
 
             if (SessionInfo.LockDateInTicks != DateTime.MinValue.Ticks)
             {
@@ -2769,25 +2828,25 @@ namespace P2PStateServer
             }
 
             headers.AppendFormat("X-If-None-Exists: true\r\nExclusive: transfer\r\nTimeout: {0}\r\nExtraFlags: {1}\r\nLast-Modified: {2}\r\n", SessionInfo.Timeout, SessionInfo.ActionFlags, SessionInfo.UpdateDateInTicks);
-
+            
             ResponseData rdata = new ResponseData(
-                MergeResponseData(headers, Data, true, Service.Settings.EncryptPeerData, Service.Authenticator, socket.SessionKey),
+                MergeResponseData(headers, Data, true, Service.Settings.EncryptPeerData, Service.Authenticator, connectedMsg.Socket.SessionKey),
                 typeof(SetTransferRequest)
             );
 
             //Create new AsyncResultActions object to hold delegates for actions based on the outcome of the call
-            AsyncResultActions<ServiceSocket> asyncResults = new AsyncResultActions<ServiceSocket>(socket);
+            AsyncResultActions<AsyncMessage> asyncResults = new AsyncResultActions<AsyncMessage>(connectedMsg);
             asyncResults.Result1Action = SuccessAction;
             asyncResults.Result2Action = FailAction;
             asyncResults.Result3Action = AlreadyExistsAction;
             asyncResults.Result4Action = PeerShuttingDownAction;
             asyncResults.TimeoutAction = TimeoutAction;
 
-            Service.AsyncRequests.Add(DateTime.UtcNow + Timeout, socket, asyncResults);
+            Service.AsyncMessageRequests.Add(DateTime.UtcNow + Timeout, connectedMsg.ID, asyncResults);
 
-            socket.Send(rdata);
+            connectedMsg.Socket.Send(rdata);
 
-            Diags.LogSend(socket, rdata);
+            Diags.LogSend(connectedMsg.Socket, rdata);
         }
 
         /// <summary>
@@ -2804,6 +2863,14 @@ namespace P2PStateServer
         public DateTime? LockDate
         {
             get { return lockDate; }
+        }
+
+        /// <summary>
+        /// Get the message identifier
+        /// </summary>
+        public Guid? ID
+        {
+            get { return id; }
         }
 
     }
@@ -2911,7 +2978,7 @@ namespace P2PStateServer
 
             if (ResponseType == typeof(OKResponse))
             {
-                OKResponse.AppendResponse(sb, ResponseMessage, service.ASPNETVersion, ResponseInfo == null ? 0 : ResponseInfo.ActionFlags);
+                OKResponse.AppendResponse(sb, ResponseMessage, null, service.ASPNETVersion, ResponseInfo == null ? 0 : ResponseInfo.ActionFlags);
             }
             else if (ResponseType == typeof(NotFoundResponse))
             {
@@ -3081,7 +3148,7 @@ namespace P2PStateServer
 
             if (ResponseType == typeof(OKResponse))
             {
-                OKResponse.AppendResponse(sb, ResponseMessage, service.ASPNETVersion, 0);
+                OKResponse.AppendResponse(sb, ResponseMessage, null, service.ASPNETVersion, 0);
             }
             else if (ResponseType == typeof(NotFoundResponse))
             {
@@ -3224,7 +3291,7 @@ namespace P2PStateServer
 
             if (ResponseType == typeof(OKResponse))
             {
-                OKResponse.AppendResponse(sb, ResponseMessage, service.ASPNETVersion, 0);
+                OKResponse.AppendResponse(sb, ResponseMessage, null, service.ASPNETVersion, 0);
             }
             else if (ResponseType == typeof(NotFoundResponse))
             {
@@ -3341,9 +3408,9 @@ namespace P2PStateServer
                 {
                     //Remove reference object for this request from scavenger's list
                     AsyncResultActions<ServiceSocket> calls;
-                    if (service.AsyncRequests.TryGetValue(socket, out calls))
+                    if (service.AsyncSocketRequests.TryGetValue(socket, out calls))
                     {
-                        if (service.AsyncRequests.Remove(socket))
+                        if (service.AsyncSocketRequests.Remove(socket))
                         {
                             if (authInfo_rspauth != null)
                             {
@@ -3382,13 +3449,15 @@ namespace P2PStateServer
                     return; //this async operation has already been handled
 
                 }
-                else if (lastMsgType == typeof(SetTransferRequest))
+                else if( assocID.HasValue )
                 {
+                    //Check if it's an AsyncMessage OK
+
                     //Remove reference object for this request from scavenger's list
-                    AsyncResultActions<ServiceSocket> calls;
-                    if (service.AsyncRequests.TryGetValue(socket, out calls))
+                    AsyncResultActions<AsyncMessage> calls;
+                    if (service.AsyncMessageRequests.TryGetValue(assocID.Value, out calls))
                     {
-                        if (service.AsyncRequests.Remove(socket))
+                        if (service.AsyncMessageRequests.Remove(assocID.Value))
                         {
                             //Call the 'Success' method for the original request that initiated the transfer
                             calls.InvokeResult1Action(); //Result1 is the Success action
@@ -3420,14 +3489,19 @@ namespace P2PStateServer
         /// </summary>
         /// <param name="sb">The StringBuilder to append data to</param>
         /// <param name="Message">The response reason phrase</param>
+        /// <param name="AssociatedRequestID">The request ID associated with this response</param>
         /// <param name="ASPNETVersion">The state server version</param>
         /// <param name="ActionFlags">Action flags value</param>
-        internal static void AppendResponse(StringBuilder sb, string Message, string ASPNETVersion, int ActionFlags)
+        internal static void AppendResponse(StringBuilder sb, string Message, Guid? AssociatedRequestID, string ASPNETVersion, int ActionFlags)
         {
             sb.AppendFormat("{0} {1}\r\nX-AspNet-Version: {2}\r\n", Code.ToString(), Message == string.Empty ? DefaultMessage : Message ?? DefaultMessage, ASPNETVersion);
             if (ActionFlags > 0)
             {
                 sb.AppendFormat("ActionFlags: {0}\r\n", ActionFlags);
+            }
+            if (AssociatedRequestID.HasValue)
+            {
+                sb.AppendFormat("X-Assoc-ID: {0}\r\n", AssociatedRequestID.Value.ToString("N"));
             }
             sb.AppendFormat("Cache-Control: private\r\n");
         }
@@ -3445,7 +3519,7 @@ namespace P2PStateServer
         {
             if (ClientNonce == null || ResponseDigest == null)
             {
-                AppendResponse(sb, Message, ASPNETVersion, 0);
+                AppendResponse(sb, Message, null, ASPNETVersion, 0);
                 return;
             }
 
@@ -3467,7 +3541,7 @@ namespace P2PStateServer
         {
             if (ResponseInfo == null)
             {
-                AppendResponse(sb, Message, ASPNETVersion, ResponseInfo == null ? 0 : ResponseInfo.ActionFlags);
+                AppendResponse(sb, Message, null, ASPNETVersion, ResponseInfo == null ? 0 : ResponseInfo.ActionFlags);
                 return;
             }
 
@@ -3542,8 +3616,25 @@ namespace P2PStateServer
         /// <param name="ASPNETVersion">The state server version</param>
         internal static void AppendResponse(StringBuilder sb,string Message, string ASPNETVersion)
         {
-            sb.AppendFormat("{0} {1}\r\nX-AspNet-Version: {2}\r\nCache-Control: private\r\n", Code.ToString(), Message == string.Empty ? DefaultMessage : Message ?? DefaultMessage, ASPNETVersion);
+            AppendResponse(sb, Message, null, ASPNETVersion);
         }
+
+        /// <summary>
+        /// Appends the raw response data to a string builder
+        /// </summary>
+        /// <param name="sb">The StringBuilder to append data to</param>
+        /// <param name="Message">The response reason phrase</param>
+        /// <param name="AssociatedRequestID">The request ID associated with this response</param>
+        /// <param name="ASPNETVersion">The state server version</param>
+        internal static void AppendResponse(StringBuilder sb, string Message, Guid? AssociatedRequestID, string ASPNETVersion)
+        {
+            sb.AppendFormat("{0} {1}\r\nX-AspNet-Version: {2}\r\nCache-Control: private\r\n", Code.ToString(), Message == string.Empty ? DefaultMessage : Message ?? DefaultMessage, ASPNETVersion);
+            if (AssociatedRequestID.HasValue)
+            {
+                sb.AppendFormat("X-Assoc-ID: {0}\r\n", AssociatedRequestID.Value.ToString("N"));
+            }
+        }
+
     }
 
     /// <summary>
@@ -3774,7 +3865,7 @@ namespace P2PStateServer
                     //Last sent message was a BeginAuthRequest
 
                     //Check if Async request is still valid
-                    if (!service.AsyncRequests.ContainsKey(socket)) return;
+                    if (!service.AsyncSocketRequests.ContainsKey(socket)) return;
 
                     //then send a Complete \AUTH request
 
@@ -3796,9 +3887,9 @@ namespace P2PStateServer
                     //Look for the scavenger's reference object for the original BeginAuth/CompleteAuth request
                     //if the object is still valid, then call the method to tell the original request that things didn't go well
                     AsyncResultActions<ServiceSocket> calls;
-                    if (service.AsyncRequests.TryGetValue(socket, out calls))
+                    if (service.AsyncSocketRequests.TryGetValue(socket, out calls))
                     {
-                        if (service.AsyncRequests.Remove(socket))
+                        if (service.AsyncSocketRequests.Remove(socket))
                         {
                             Diags.LogPeerAuthenticationFailed("Final Unauthorized response received at UnauthorizedResponse.Process()",socket.RemoteIP);
                             calls.InvokeResult2Action(); //Result2 is the failure result
@@ -3808,7 +3899,7 @@ namespace P2PStateServer
                         return; //Async operation has already been handled
                     }
                 }
-                else if (lastMsg == typeof(SetTransferRequest))
+                else if (assocID.HasValue)
                 {
                     ProcessFailureResponse();
                     return;
@@ -3832,13 +3923,18 @@ namespace P2PStateServer
         /// </summary>
         /// <param name="sb">The StringBuilder to append data to</param>
         /// <param name="Message">The response reason phrase</param>
+        /// <param name="AssociatedRequestID"> The Request ID that is associated with this response</param>
         /// <param name="ASPNETVersion">The state server version</param>
         /// <param name="Nonce">The nonce field value in the WWW-Authenticate Response Header, according to RFC 2617</param>
         /// <param name="Realm">The realm field value in the WWW-Authenticate Response Header, according to RFC 2617</param>
         /// <param name="HashAlgorithmName">The algorithm field value in the WWW-Authenticate Response Header, according to RFC 2617</param>
-        internal static void AppendResponse(StringBuilder sb, string Message, string ASPNETVersion, string Nonce, string Realm, string HashAlgorithmName)
+        internal static void AppendResponse(StringBuilder sb, string Message, Guid? AssociatedRequestID, string ASPNETVersion, string Nonce, string Realm, string HashAlgorithmName)
         {
             sb.AppendFormat("{0} {1}\r\nX-AspNet-Version: {2}\r\n", Code.ToString(), Message == string.Empty ? DefaultMessage : Message ?? DefaultMessage, ASPNETVersion);
+            if (AssociatedRequestID.HasValue)
+            {
+                sb.AppendFormat("X-Assoc-ID: {0}\r\n", AssociatedRequestID.Value.ToString("N"));
+            }
             sb.AppendFormat("WWW-Authenticate: Digest realm=\"{0}\", qop=\"auth\", nonce=\"{1}\", algorithm=\"{2}\"\r\n", Realm, Nonce, HashAlgorithmName );
 
         }
@@ -3895,28 +3991,34 @@ namespace P2PStateServer
             if (sentMsgs != null && sentMsgs.Length > 0)
             {
                 Type lastMsgType = sentMsgs[sentMsgs.Length - 1].ResponseType;
-                if ( lastMsgType == typeof(SetTransferRequest))
-                {
-                    //Remove reference object for this request from scavenger's list
-                    AsyncResultActions<ServiceSocket> calls;
-                    if (service.AsyncRequests.TryGetValue(socket, out calls))
-                    {
-                        if (service.AsyncRequests.Remove(socket))
-                        {
-                            //Call the 'transfer-already-exists' method for the original request that initiated the transfer
-                            calls.InvokeResult3Action(); //Result3 is the Already Exiting action
-                            return;
-                        }
-                    }
-
-                    return; //Another method has handled this async operation
-
-                }
-                else if (lastMsgType == typeof(BeginAuthRequest) || lastMsgType == typeof(CompleteAuthRequest))
+                if (lastMsgType == typeof(BeginAuthRequest) || lastMsgType == typeof(CompleteAuthRequest))
                 {
                     ProcessFailureResponse();
                     return;
                 }
+                else if (assocID.HasValue)
+                {
+                    //Check if it's for an AsyncMessage
+
+                    //Remove reference object for this request from scavenger's list
+                    AsyncResultActions<AsyncMessage> calls;
+                    if (service.AsyncMessageRequests.TryGetValue(assocID.Value, out calls))
+                    {
+                        if (service.AsyncMessageRequests.Remove(assocID.Value))
+                        {
+                            if (calls.State.Operation == AsyncMessageOperation.SetTransferOperation)
+                            {
+                                //Call the 'transfer-already-exists' method for the original request that initiated the transfer
+                                calls.InvokeResult3Action(); //Result3 is the Already Exiting action
+                            }
+                            return;
+                        }
+                    }
+
+                    return; //This async operation was previously handled
+
+                }
+
             }
 
             //I have no clue why I'm receiving this
@@ -3934,10 +4036,11 @@ namespace P2PStateServer
         /// </summary>
         /// <param name="sb">The StringBuilder to append data to</param>
         /// <param name="Message">The response reason phrase</param>
+        /// <param name="AssociatedRequestID">The request ID associated with this response</param>
         /// <param name="ASPNETVersion">The state server version</param>
-        internal static void AppendResponse(StringBuilder sb, string Message, string ASPNETVersion)
+        internal static void AppendResponse(StringBuilder sb, string Message, Guid AssociatedRequestID, string ASPNETVersion)
         {
-            sb.AppendFormat("{0} {1}\r\nX-AspNet-Version: {2}\r\nCache-Control: private\r\n", Code.ToString(), Message == string.Empty ? DefaultMessage : Message ?? DefaultMessage, ASPNETVersion);
+            sb.AppendFormat("{0} {1}\r\nX-AspNet-Version: {2}\r\nX-Assoc-ID: {3}\r\nCache-Control: private\r\n", Code.ToString(), Message == string.Empty ? DefaultMessage : Message ?? DefaultMessage, ASPNETVersion, AssociatedRequestID.ToString("N"));
         }
 
     }
@@ -3988,27 +4091,32 @@ namespace P2PStateServer
             if (sentMsgs != null && sentMsgs.Length > 0)
             {
                 Type lastMsgType = sentMsgs[sentMsgs.Length - 1].ResponseType;
-                if (lastMsgType == typeof(SetTransferRequest))
+                if (lastMsgType == typeof(BeginAuthRequest) || lastMsgType == typeof(CompleteAuthRequest))
                 {
+                    ProcessFailureResponse();
+                    return;
+                }
+                else if (assocID.HasValue)
+                {
+                    //Check if it's for an AsyncMessage
+
                     //Remove reference object for this request from scavenger's list
-                    AsyncResultActions<ServiceSocket> calls;
-                    if (service.AsyncRequests.TryGetValue(socket, out calls))
+                    AsyncResultActions<AsyncMessage> calls;
+                    if (service.AsyncMessageRequests.TryGetValue(assocID.Value, out calls))
                     {
-                        if (service.AsyncRequests.Remove(socket))
+                        if (service.AsyncMessageRequests.Remove(assocID.Value))
                         {
-                            //Call the 'peer-is-shutting-down' method for the original request that initiated the transfer
-                            calls.InvokeResult4Action(); //Result4 is the Peer is shutting down action
+                            if (calls.State.Operation == AsyncMessageOperation.SetTransferOperation)
+                            {
+                                //Call the 'peer-is-shutting-down' method for the original request that initiated the transfer
+                                calls.InvokeResult4Action(); //Result4 is the Peer is shutting down action
+                            }
                             return;
                         }
                     }
 
-                    return; //Another method has handled this async operation
+                    return; //This async operation was previously handled
 
-                }
-                else if (lastMsgType == typeof(BeginAuthRequest) || lastMsgType == typeof(CompleteAuthRequest))
-                {
-                    ProcessFailureResponse();
-                    return;
                 }
             }
 
@@ -4027,10 +4135,11 @@ namespace P2PStateServer
         /// </summary>
         /// <param name="sb">The StringBuilder to append data to</param>
         /// <param name="Message">The response reason phrase</param>
+        /// <param name="AssociatedRequestID">The request ID associated with this response</param>
         /// <param name="ASPNETVersion">The state server version</param>
-        internal static void AppendResponse(StringBuilder sb, string Message, string ASPNETVersion)
+        internal static void AppendResponse(StringBuilder sb, string Message, Guid AssociatedRequestID, string ASPNETVersion)
         {
-            sb.AppendFormat("{0} {1}\r\nX-AspNet-Version: {2}\r\nCache-Control: private\r\n", Code.ToString(), Message == string.Empty ? DefaultMessage : Message ?? DefaultMessage, ASPNETVersion);
+            sb.AppendFormat("{0} {1}\r\nX-AspNet-Version: {2}\r\nX-Assoc-ID: {3}\r\nCache-Control: private\r\n", Code.ToString(), Message == string.Empty ? DefaultMessage : Message ?? DefaultMessage, ASPNETVersion, AssociatedRequestID.ToString("N"));
         }
 
     }
