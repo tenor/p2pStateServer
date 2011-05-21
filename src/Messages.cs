@@ -575,7 +575,7 @@ namespace P2PStateServer
                     //Check if it's for an AsyncMessage
 
                     //Remove reference object for this request from scavenger's list
-                    AsyncResultActions<AsyncMessage> calls;
+                    AsyncResultActions<AsyncMessageTracker> calls;
                     if (service.AsyncMessageRequests.TryGetValue(assocID.Value, out calls))
                     {
                         if (service.AsyncMessageRequests.Remove(assocID.Value))
@@ -1554,60 +1554,101 @@ namespace P2PStateServer
             int? remotePort;
             ServerSettings.HostEndPoint.Parse(Host,out remoteHost,out remotePort);
             if(!remotePort.HasValue) remotePort = service.Settings.PeerPort;
+            ServerSettings.HostEndPoint endPoint = new ServerSettings.HostEndPoint(remoteHost.Trim(),remotePort.Value);
 
             const int sentTransferExpiryTime = 2; // 2 seconds is sufficient for a broadcast to traverse half a reasonable network
 
-            service.NewActiveExport(Resource); //create an entry in the exports list for this export
+            #region Callback Delegate declarations
 
-            service.TransferSession(new ServerSettings.HostEndPoint(remoteHost.Trim(), remotePort.Value), Resource, response, Session.Data,
-                //SuccessAction
-                delegate(AsyncMessage asyncMsg)
+            //SuccessAction
+            Action<AsyncMessageTracker> successAction = 
+                delegate(AsyncMessageTracker asyncMsg)
                 {
                     //Add this transfer to list of recently transferred sessions and have it expire in 15 seconds
                     service.SentTransfers.Add(DateTime.UtcNow + new TimeSpan(0, 0, sentTransferExpiryTime), Resource, null);
 
                     TransferSuccess(asyncMsg);
                     Diags.LogTransferSuccess(Resource);
-                },
+                };
 
-                //FailedAction
-                delegate(AsyncMessage asyncMsg)
+            //FailedAction
+            Action<AsyncMessageTracker> failureAction =
+                delegate(AsyncMessageTracker asyncMsg)
                 {
                     TransferFailure(asyncMsg);
                     Diags.LogTransferFailed(Resource, string.Empty);
-                },
 
-                //AlreadyExistsAction
-                delegate(AsyncMessage asyncMsg)
+                };
+
+            //AlreadyExistsAction
+            Action<AsyncMessageTracker> alreadyExistsAction =
+                delegate(AsyncMessageTracker asyncMsg)
                 {
                     //Add this transfer to list of recently transferred sessions and have it expire in 15 seconds
                     service.SentTransfers.Add(DateTime.UtcNow + new TimeSpan(0, 0, sentTransferExpiryTime), Resource, null);
 
                     TransferSuccess(asyncMsg);
                     Diags.LogTransferFailed(Resource, "Resource already exists in remote peer -- deleted local copy");
-                },
+                };
 
-                //PeerShuttingDownAction
-                delegate(AsyncMessage asyncMsg)
+            //PeerShuttingDownAction
+            Action<AsyncMessageTracker> peerShuttingDownAction =
+                delegate(AsyncMessageTracker asyncMsg)
                 {
                     TransferFailure(asyncMsg);
                     Diags.LogTransferFailed(Resource, "Peer is shutting down");
-                },
+                };
 
-                //TimeoutAction                
+
+            //TimeoutAction                
+            System.Threading.WaitCallback timeoutAction =
                 delegate(object asyncMsg)
                 {
                     //This anonymous method can be called directly from a background thread so make sure it's exception-safe
                     try
                     {
-                        TransferFailure((AsyncMessage)asyncMsg);
+                        TransferFailure((AsyncMessageTracker)asyncMsg);
                         Diags.LogTransferFailed(Resource, "Timed out");
                     }
                     catch (Exception ex)
                     {
                         Diags.LogApplicationError( "TimeoutAction delegate error in CompleteTransferRequest", ex);
                     }
-                }); 
+                };
+
+
+            //FailedActionForExistingLink
+            Action<AsyncMessageTracker> failureActionForExistingLink =
+                delegate(AsyncMessageTracker asyncMsg)
+                {
+                    Diags.LogTransferFailed(Resource, "Existing link, trying again on new link");
+                    //Try again by reconnecting
+                    service.TransferSession(endPoint, Resource, response, Session.Data,
+                        successAction, failureAction, alreadyExistsAction, peerShuttingDownAction, timeoutAction);
+
+                };
+
+
+            #endregion
+
+            service.NewActiveExport(Resource); //create an entry in the exports list for this export
+
+            //Look for standing link
+            ServiceSocket linkSocket;
+            if(service.TryGetLinkTo(endPoint, out linkSocket))
+            {
+                //There is a standing link to this peer so send transfer through it
+                AsyncMessageTracker msg = new AsyncMessageTracker(AsyncMessageOperation.SetTransferOperation, Guid.NewGuid(), linkSocket);
+                service.TransferSession(msg, Resource, response, Session.Data,
+                    successAction, failureActionForExistingLink, alreadyExistsAction, peerShuttingDownAction, timeoutAction); 
+            }
+            else
+            {
+                //Initiate a brand new connection
+                service.TransferSession(endPoint, Resource, response, Session.Data,
+                    successAction,failureAction,alreadyExistsAction,peerShuttingDownAction,timeoutAction); 
+
+            }
                 
 
         }
@@ -1615,19 +1656,12 @@ namespace P2PStateServer
         /// <summary>
         /// Ends a successful session transfer
         /// </summary>
-        /// <param name="transferredMessage">The AsyncMessage object representing the transfer.</param>
-        private void TransferSuccess(AsyncMessage transferredMessage)
+        /// <param name="transferredMessage">The AsyncMessageTracker representing the transfer.</param>
+        private void TransferSuccess(AsyncMessageTracker transferredMessage)
         {
 
             List<AsyncResultActions<string>> calls = service.RemoveActiveExport(Resource);
             service.SessionTable.EndExport(Resource, true);
-
-            if (transferredMessage.Socket.IsConnected)
-            {
-                Diags.LogDisconnectingPeer(transferredMessage.Socket.RemoteIP);
-                transferredMessage.Socket.Close();
-
-            }
 
             if (calls != null) CallExportEndedActions(calls);
 
@@ -1636,8 +1670,8 @@ namespace P2PStateServer
         /// <summary>
         /// Ends a failed Session Transfer
         /// </summary>
-        /// <param name="transferredMessage">The AsyncMessage object representing the transfer.</param>
-        private void TransferFailure(AsyncMessage transferredMessage)
+        /// <param name="transferredMessage">The AsyncMessageTracker representing the transfer.</param>
+        private void TransferFailure(AsyncMessageTracker transferredMessage)
         {
             List<AsyncResultActions<string>> calls = service.RemoveActiveExport(Resource);
             service.SessionTable.EndExport(Resource, false);
@@ -2804,7 +2838,7 @@ namespace P2PStateServer
         /// <summary>
         /// Sends a SetTransferRequest message to a specified ServiceSocket
         /// </summary>
-        /// <param name="connectedMsg">AsyncMessage object holding connected socket</param>
+        /// <param name="connectedMsg">AsyncMessageTracker holding connected socket</param>
         /// <param name="Service">The state server instance</param>
         /// <param name="Resource">The URI associated with the message</param>
         /// <param name="SessionInfo">The Session information used to populate fields in the message</param>
@@ -2815,8 +2849,8 @@ namespace P2PStateServer
         /// <param name="PeerShuttingDownAction">The Action to call if the recipient peer is shutting down</param>
         /// <param name="TimeoutAction">The Action to call if the transfer timed out. This Action's processing time should be very short because a long list of Timeout actions can be daisy-chained and called one after the other</param>
         /// <param name="Timeout">The timeout time span</param>
-        public static void Send(AsyncMessage connectedMsg, StateServer Service, string Resource, ISessionResponseInfo SessionInfo,
-            byte[] Data, Action<AsyncMessage> SuccessAction, Action<AsyncMessage> FailAction, Action<AsyncMessage> AlreadyExistsAction, Action<AsyncMessage> PeerShuttingDownAction, System.Threading.WaitCallback TimeoutAction, TimeSpan Timeout)
+        public static void Send(AsyncMessageTracker connectedMsg, StateServer Service, string Resource, ISessionResponseInfo SessionInfo,
+            byte[] Data, Action<AsyncMessageTracker> SuccessAction, Action<AsyncMessageTracker> FailAction, Action<AsyncMessageTracker> AlreadyExistsAction, Action<AsyncMessageTracker> PeerShuttingDownAction, System.Threading.WaitCallback TimeoutAction, TimeSpan Timeout)
         {
             StringBuilder headers = new StringBuilder();
 
@@ -2835,7 +2869,7 @@ namespace P2PStateServer
             );
 
             //Create new AsyncResultActions object to hold delegates for actions based on the outcome of the call
-            AsyncResultActions<AsyncMessage> asyncResults = new AsyncResultActions<AsyncMessage>(connectedMsg);
+            AsyncResultActions<AsyncMessageTracker> asyncResults = new AsyncResultActions<AsyncMessageTracker>(connectedMsg);
             asyncResults.Result1Action = SuccessAction;
             asyncResults.Result2Action = FailAction;
             asyncResults.Result3Action = AlreadyExistsAction;
@@ -3454,7 +3488,7 @@ namespace P2PStateServer
                     //Check if it's an AsyncMessage OK
 
                     //Remove reference object for this request from scavenger's list
-                    AsyncResultActions<AsyncMessage> calls;
+                    AsyncResultActions<AsyncMessageTracker> calls;
                     if (service.AsyncMessageRequests.TryGetValue(assocID.Value, out calls))
                     {
                         if (service.AsyncMessageRequests.Remove(assocID.Value))
@@ -4001,7 +4035,7 @@ namespace P2PStateServer
                     //Check if it's for an AsyncMessage
 
                     //Remove reference object for this request from scavenger's list
-                    AsyncResultActions<AsyncMessage> calls;
+                    AsyncResultActions<AsyncMessageTracker> calls;
                     if (service.AsyncMessageRequests.TryGetValue(assocID.Value, out calls))
                     {
                         if (service.AsyncMessageRequests.Remove(assocID.Value))
@@ -4101,7 +4135,7 @@ namespace P2PStateServer
                     //Check if it's for an AsyncMessage
 
                     //Remove reference object for this request from scavenger's list
-                    AsyncResultActions<AsyncMessage> calls;
+                    AsyncResultActions<AsyncMessageTracker> calls;
                     if (service.AsyncMessageRequests.TryGetValue(assocID.Value, out calls))
                     {
                         if (service.AsyncMessageRequests.Remove(assocID.Value))

@@ -54,6 +54,8 @@ namespace P2PStateServer
         IBufferPool bufferPool = null; //BufferPool used by this socket
         IBuffer recvBuffer = null; //Buffer were data is received by this socket
 
+        private readonly static bool is64bitMachine = false;
+
         /// <summary>
         /// Initializes a new instance of the ServiceSocket class.
         /// </summary>
@@ -75,6 +77,14 @@ namespace P2PStateServer
         public ServiceSocket(bool IsPeerSocket, IBufferPool Buffers)
             : this(new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp), IsPeerSocket, Buffers)
         { }
+
+        static ServiceSocket()
+        {
+            if (System.IntPtr.Size > 4)
+            {
+                is64bitMachine = true;
+            }
+        }
 
         /// <summary>
         /// Gets a value indicating whether the socket was spawned from the state server peer port.
@@ -99,6 +109,8 @@ namespace P2PStateServer
         {
             get 
             {
+                if (is64bitMachine) return referenceTime;
+
                 lock (syncReferenceTime)
                 {
                     return referenceTime;
